@@ -143,6 +143,7 @@ static int extra_done, apu_frozen;
 int opt_extra_lines;          /* boost: idle CPU-only scanlines per frame */
 int opt_no_sprite_limit;      /* boost: draw all sprites on a line */
 void (*nmi_hook)(uint16_t pc);
+void (*ppu_write_hook)(uint16_t reg, uint8_t v, uint16_t vaddr);
 
 static inline uint16_t nt_index(uint16_t a) {
     return (uint16_t)((nt_page[(a >> 10) & 3] << 10) | (a & 0x3FF));
@@ -168,6 +169,78 @@ static void ppu_mem_write(uint16_t a, uint8_t v) {
     if (a < 0x2000) { if (!chr_pages) CHR(a) = v; }
     else if (a < 0x3F00) vram[nt_index(a)] = v;
     else pal[pal_idx(a)] = v & 0x3F;
+}
+
+/* ---------------- widescreen ----------------
+   A per-game provider maps world tile positions to level tiles straight from
+   the ROM. Extra columns are drawn on both sides of the 256-pixel picture.
+   Each frame the provider's answer is checked against what the game itself
+   put in the nametables; if they disagree (menus, transitions, cutscenes)
+   the extra area stays dark, so it can never show the wrong thing. */
+int wide_ext;
+uint8_t wide_left[240][WIDE_MAX], wide_right[240][WIDE_MAX];
+const WideProvider *wide_prov;
+int wide_active;                 /* this frame's check passed */
+static uint32_t wide_checked_frame = 0xFFFFFFFF;
+static int wide_cam;             /* provider's camera x (world pixels) */
+
+static int wide_world_left(uint16_t v) {
+    int nt_x = (((v & 0x1F) << 3) | ppu_x) + ((v >> 10) & 1) * 256;
+    int d = ((nt_x - wide_cam) % 512 + 512) % 512;
+    if (d >= 256) d -= 512;
+    return wide_cam + d;
+}
+
+static void wide_check(uint16_t v) {
+    wide_active = 0;
+    if (!wide_prov || !wide_prov->begin(&wide_cam)) return;
+    int wl = wide_world_left(v), nt_col0 = (((v & 0x1F) << 3 | ppu_x) + ((v >> 10) & 1) * 256) >> 3;
+    int match = 0, total = 0;
+    for (int ty = 2; ty < 28; ty += 3)
+        for (int k = 1; k < 32; k += 3) {
+            uint8_t t, p;
+            int col = (nt_col0 + k) & 63;
+            uint8_t nt = vram[nt_index((uint16_t)(0x2000 | ((col & 32) ? 0x400 : 0) | (ty << 5) | (col & 31)))];
+            total++;
+            if (wide_prov->tile((wl >> 3) + k, ty, &t, &p) && t == nt) match++;
+        }
+    wide_active = match * 100 >= total * 85;
+}
+
+static void wide_line(int y, uint16_t v, uint8_t *bgpix) {
+    int ext = wide_ext;
+    uint8_t *L = wide_left[y], *R = wide_right[y];
+    if (frame_count != wide_checked_frame) { wide_checked_frame = frame_count; wide_check(v); }
+    if (!wide_active || !(ppu_mask & 0x08)) {
+        memset(L, 0x0F, ext); memset(R, 0x0F, ext);
+        return;
+    }
+    int wl = wide_world_left(v), ty = (v >> 5) & 31, fy = (v >> 12) & 7;
+    uint16_t pt = (ppu_ctrl & 0x10) ? 0x1000 : 0;
+    /* ranges: left extension, the game's clipped left 8 pixels (if hidden), right extension */
+    int ranges[3][2] = {{-ext, 0}, {0, (ppu_mask & 0x02) ? 0 : 8}, {256, 256 + ext}};
+    for (int r = 0; r < 3; r++) {
+        int last_tx = 0x7FFFFFFF, ok = 0;
+        uint8_t lo = 0, hi = 0, pn = 0;
+        for (int i = ranges[r][0]; i < ranges[r][1]; i++) {
+            int wx = wl + i, tx = wx >> 3;
+            if (tx != last_tx) {
+                uint8_t t = 0, p = 0;
+                last_tx = tx;
+                ok = wide_prov->tile(tx, ty, &t, &p);
+                if (ok) { lo = CHR(pt + t * 16 + fy); hi = CHR(pt + t * 16 + fy + 8); pn = p; }
+            }
+            uint8_t c = 0x0F;
+            if (ok) {
+                int b = 7 - (wx & 7);
+                int ci = ((lo >> b) & 1) | (((hi >> b) & 1) << 1);
+                c = ci ? pal[(pn << 2) | ci] : pal[0];
+                if (r == 1) bgpix[i] = ci ? (uint8_t)(ci | (pn << 2)) : 0;
+            }
+            if (r == 0) L[i + ext] = c;
+            else if (r == 2) R[i - 256] = c;
+        }
+    }
 }
 
 static void render_line(int y) {
@@ -223,6 +296,7 @@ static void render_line(int y) {
             }
         }
     }
+    if (wide_ext) wide_line(y, ppu_v, bgpix);   /* also fills the clipped left 8 pixels */
     for (int x = 0; x < 256; x++) {
         uint8_t c;
         if (sp[x] && (!(spattr[x] & 0x20) || !bgpix[x])) c = pal[sp[x]];
@@ -556,6 +630,7 @@ uint8_t io_read(uint16_t a) {
 void io_write(uint16_t a, uint8_t v) {
     if (a < 0x4000) {
         ppu_sync();
+        if (ppu_write_hook) ppu_write_hook((uint16_t)(0x2000 | (a & 7)), v, ppu_v);
         ppu_latch = v;
         switch (a & 7) {
         case 0:

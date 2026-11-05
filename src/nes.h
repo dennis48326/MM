@@ -84,7 +84,17 @@ void nes_power(const uint8_t *prg_data, int nbanks16, const uint8_t *chr_data, i
 void nes_reset_cpu(void);
 
 /* ---- PPU ---- */
-extern uint8_t framebuffer[240][256];  /* palette indices 0..63 (bit 6 = grayscale unused) */
+extern uint8_t framebuffer[240][256];
+/* widescreen: extra columns on each side, drawn from a per-game level provider */
+#define WIDE_MAX 160
+typedef struct {
+    int (*begin)(int *cam_world_x);                              /* per frame; 0 = not in a level */
+    int (*tile)(int world_tx, int nt_row, uint8_t *tile, uint8_t *palno);  /* 0 = outside room: dark */
+} WideProvider;
+extern int wide_ext;                       /* extra pixels per side, 0 = off */
+extern uint8_t wide_left[240][WIDE_MAX], wide_right[240][WIDE_MAX];
+extern const WideProvider *wide_prov;
+extern int wide_active;  /* palette indices 0..63 (bit 6 = grayscale unused) */
 extern uint32_t frame_count;
 
 /* ---- input ---- */
@@ -103,5 +113,6 @@ extern int stat_max_nest;
 extern uint8_t *cov_map;
 extern int opt_extra_lines;      /* boost: CPU-only scanlines added after line 240 */
 extern int opt_no_sprite_limit;  /* boost: no 8-sprites-per-line limit */
-extern void (*nmi_hook)(uint16_t pc);  /* optional: marks executed PRG addresses (interpreter only) */
+extern void (*nmi_hook)(uint16_t pc);
+extern void (*ppu_write_hook)(uint16_t reg, uint8_t v, uint16_t vaddr);  /* debug: PPU register writes */  /* optional: marks executed PRG addresses (interpreter only) */
 #endif

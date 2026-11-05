@@ -2,6 +2,7 @@
    hashes, screenshots (PPM) and code-coverage capture. */
 #include "nes.h"
 #include "palette.h"
+extern const WideProvider wide_mm2;
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +21,8 @@ static const char *cov_path;
 static struct { uint32_t start, dur; uint8_t mask; } inputs[4096];
 static int ninputs;
 static FILE *audio_out;
-static FILE *nmi_log;
+static FILE *nmi_log, *ppu_log, *ram_log;
+static void log_ppu(uint16_t reg, uint8_t v, uint16_t va) { fprintf(ppu_log, "%u %04X %04X %02X %04X\n", frame_count, PC, reg, v, va); }
 static void log_nmi(uint16_t pc) { if (nmi_log) fwrite(&pc, 2, 1, nmi_log); }
 static int npokes; static uint16_t poke_a[16]; static uint8_t poke_v[16];
 
@@ -35,10 +37,12 @@ static void load(const char *p) {
 
 static void shot(const char *path) {
     FILE *f = fopen(path, "wb");
-    fprintf(f, "P6 256 240 255\n");
+    int e = wide_ext;
+    fprintf(f, "P6 %d 240 255\n", 256 + 2 * e);
     for (int y = 0; y < 240; y++)
-        for (int x = 0; x < 256; x++) {
-            uint32_t c = nes_palette[framebuffer[y][x] & 63];
+        for (int x = -e; x < 256 + e; x++) {
+            uint8_t ci = x < 0 ? wide_left[y][x + e] : x >= 256 ? wide_right[y][x - 256] : framebuffer[y][x];
+            uint32_t c = nes_palette[ci & 63];
             fputc(c >> 16, f); fputc((c >> 8) & 255, f); fputc(c & 255, f);
         }
     fclose(f);
@@ -58,6 +62,8 @@ static void finish(void) {
     if (hashlog) fclose(hashlog);
     if (audio_out) fclose(audio_out);
     if (nmi_log) fclose(nmi_log);
+    if (ppu_log) fclose(ppu_log);
+    if (ram_log) fclose(ram_log);
     fprintf(stderr, "frames=%u interp_insns=%llu max_nest=%d jammed=%d\n", frame_count,
             (unsigned long long)stat_interp_insns, stat_max_nest, cpu_jammed);
     exit(0);
@@ -73,6 +79,7 @@ void host_frame(void) {
         return;
     }
     uint32_t fr = frame_count;
+    if (ram_log) fwrite(ram, 1, sizeof ram, ram_log);
     if (hashlog) {
         uint64_t h = fnv(ram, sizeof ram, 1469598103934665603ULL);
         uint64_t h2 = fnv(&framebuffer[0][0], sizeof framebuffer, 1469598103934665603ULL);
@@ -147,6 +154,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "-a")) audio_out = fopen(argv[++i], "wb");
         else if (!strcmp(argv[i], "--extra")) opt_extra_lines = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--nolimit")) opt_no_sprite_limit = 1;
+        else if (!strcmp(argv[i], "--wide")) { wide_ext = atoi(argv[++i]); wide_prov = &wide_mm2; }
+        else if (!strcmp(argv[i], "-w")) { ppu_log = fopen(argv[++i], "w"); ppu_write_hook = log_ppu; }
+        else if (!strcmp(argv[i], "-r")) ram_log = fopen(argv[++i], "wb");
         else if (!strcmp(argv[i], "-n")) { nmi_log = fopen(argv[++i], "wb"); nmi_hook = log_nmi; }
         else if (!strcmp(argv[i], "-p") && npokes < 16) {
             unsigned a_, v_; sscanf(argv[++i], "%x=%x", &a_, &v_); poke_a[npokes] = (uint16_t)a_; poke_v[npokes++] = (uint8_t)v_;

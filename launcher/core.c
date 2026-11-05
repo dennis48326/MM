@@ -79,13 +79,13 @@ static struct { float x, y, v; uint32_t c; } stars[NSTARS];
 /* panels */
 /* grid items, 4 columns x 2 rows; the volume bar is focus index BAR */
 /* grid: six cartridges on top, six settings below; volume bar = BAR, close box = IT_EXIT */
-enum { IT_G1, IT_G2, IT_G3, IT_G4, IT_G5, IT_G6, IT_MODE, IT_SCREEN, IT_SCALE, IT_MUSIC, IT_KEYS, IT_INFO, NP };
+enum { IT_G1, IT_G2, IT_G3, IT_G4, IT_G5, IT_G6, IT_MODE, IT_WIDE, IT_SCREEN, IT_MUSIC, IT_KEYS, IT_INFO, NP };
 #define BAR NP
 #define IT_EXIT (NP + 1)
 #define COLS 6
 #define NGAMES 6
 static const char *pname[NP] = {"MM1", "MM2", "MM3", "MM4", "MM5", "MM6",
-                                "MODE", "VIDEO", "SCALE", "MUSIC", "KEYS", "INFO"};
+                                "MODE", "WIDE", "VIDEO", "MUSIC", "KEYS", "INFO"};
 static const char *gname[NGAMES] = {"MEGA MAN", "MEGA MAN 2", "MEGA MAN 3", "MEGA MAN 4", "MEGA MAN 5", "MEGA MAN 6"};
 static const uint32_t gcolor[NGAMES] = {0x0058f8, 0xe83820, 0xd89800, 0x00a0a0, 0x8040d8, 0x28a028};
 static int hover_close;
@@ -150,8 +150,12 @@ static void activate(int i) {
         game_sel = i - IT_G1; S->last_game = game_sel;
         state = ST_TELE; tele_t = 0; sfx(SFX_SELECT, 0); break;
     case IT_MODE: S->boost ^= 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
-    case IT_SCREEN: S->fullscreen ^= 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
-    case IT_SCALE: S->scale = S->scale >= 4 ? 2 : S->scale + 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
+    case IT_SCREEN:   /* window 2x -> 3x -> 4x -> fullscreen -> 2x */
+        if (S->fullscreen) { S->fullscreen = 0; S->scale = 2; }
+        else if (S->scale >= 4) S->fullscreen = 1;
+        else S->scale++;
+        sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
+    case IT_WIDE: S->wide = (S->wide + 1) % 3; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
     case IT_MUSIC: S->music ^= 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
     case IT_KEYS: state = ST_KEYS; sfx(SFX_SELECT, 0); break;
     case IT_INFO: state = ST_INFO; sfx(SFX_SELECT, 0); break;
@@ -271,6 +275,18 @@ static void icon_screen(int x, int y, int on) {
     rect(x + 5, y + 6, 6, 2, a); rect(x + 5, y + 9, 3, 1, a);
     rect(x + 10, y + 18, 4, 3, a);
     rect(x + 6, y + 21, 12, 2, a);
+}
+static void icon_wide(int x, int y, int on) {
+    uint32_t a = on ? C_WHITE : C_LIGHT, b = on ? C_CYAN : C_BLUE;
+    int w = S->wide ? 22 : 16, x0 = x + (24 - w) / 2;
+    frame(x0, y + 6, w, 12, 2, a);                                   /* screen outline */
+    rect(x0 + 2, y + 8, w - 4, 8, b);
+    if (S->wide == 2) { rect(x0 + 2, y + 8, 3, 8, C_YELLOW); rect(x0 + w - 5, y + 8, 3, 8, C_YELLOW); }
+    for (int k = 0; k < 3; k++) {                                     /* arrows */
+        px(x + 1 + k, y + 21 - k, a); px(x + 1 + k, y + 21 + k, a);
+        px(x + 22 - k, y + 21 - k, a); px(x + 22 - k, y + 21 + k, a);
+    }
+    rect(x + 1, y + 21, 22, 1, a);
 }
 static void icon_scale(int x, int y, int on) {
     uint32_t a = on ? C_WHITE : C_LIGHT, b = on ? C_CYAN : C_BLUE;
@@ -397,6 +413,9 @@ static void draw_title(void) {
             strcpy(b, "NO ROM FOR "); strcat(b, gname[focus]);
             text_c(LW / 2, 34, b, C_RED, 1);
         }
+    } else if (state == ST_MENU && focus == IT_WIDE) {
+        static const char *wt[3] = {"WIDESCREEN OFF: ORIGINAL 4:3", "WIDESCREEN: STRETCH TO FILL", "WIDESCREEN: EXTENDED LEVEL (MM2)"};
+        text_c(LW / 2, 34, wt[S->wide % 3], S->wide == 2 ? C_YELLOW : C_LIGHT, 1);
     } else if (state == ST_MENU && focus == IT_MODE) {
         text_c(LW / 2, 34, S->boost ? "BOOST: NO SLOWDOWN, NO FLICKER" : "ORIGINAL: PLAYS LIKE THE NES",
                S->boost ? C_YELLOW : C_LIGHT, 1);
@@ -434,7 +453,7 @@ static void draw_panel(int i) {
     case IT_G1: case IT_G2: case IT_G3: case IT_G4: case IT_G5: case IT_G6: icon_cart(ix, iy, sel, i - IT_G1); break;
     case IT_MODE: icon_mode(ix, iy, sel); break;
     case IT_SCREEN: icon_screen(ix, iy, sel); break;
-    case IT_SCALE: icon_scale(ix, iy, sel); break;
+    case IT_WIDE: icon_wide(ix, iy, sel); break;
     case IT_MUSIC: icon_music(ix, iy, sel); break;
     case IT_KEYS: icon_keys(ix, iy, sel); break;
     case IT_INFO: icon_info(ix, iy, sel); break;
@@ -446,8 +465,8 @@ static void draw_panel(int i) {
     if (sel) brackets(x, y, PW, PH, 3 + ((frame_no / 10) & 1), C_WHITE);
     const char *val = NULL;
     char buf[8];
-    if (i == IT_SCREEN) val = S->fullscreen ? "FULL" : "WINDOW";
-    if (i == IT_SCALE) { buf[0] = (char)('0' + S->scale); buf[1] = 'X'; buf[2] = 0; val = buf; }
+    if (i == IT_SCREEN) { if (S->fullscreen) val = "FULL"; else { buf[0] = (char)('0' + S->scale); buf[1] = 'X'; buf[2] = 0; val = buf; } }
+    if (i == IT_WIDE) val = S->wide == 0 ? "4:3" : S->wide == 1 ? "FILL" : "EXT";
     if (i == IT_MUSIC) val = S->music ? "ON" : "OFF";
     if (i == IT_MODE) val = S->boost ? "BOOST" : "ORIG";
     if (val) text_c(x + PW / 2 + 1, y + PH + 13, val, sel ? C_YELLOW : dim(C_YELLOW, 3, 4), 1);
@@ -489,7 +508,7 @@ static void draw_footer(void) {
 
 static void draw_keys_overlay(void) {
     darken(3);
-    int w = 220, h = 164, x = (LW - w) / 2, y = 20;
+    int w = 220, h = 172, x = (LW - w) / 2, y = 14;
     rect(x + 4, y + 4, w, h, C_BLACK);
     rect(x, y, w, h, C_PANEL);
     frame(x, y, w, h, 2, C_WHITE);
@@ -498,9 +517,9 @@ static void draw_keys_overlay(void) {
     static const char *rows[][2] = {
         {"MOVE", "ARROWS/WASD"}, {"JUMP", "X  OR  K"}, {"SHOOT", "Z  OR  J"},
         {"START", "ENTER"}, {"SELECT", "RSHIFT/TAB"}, {"PAUSE", "P"},
-        {"TURBO", "HOLD SPACE"}, {"RESET", "F2"}, {"BOOST", "F3"}, {"FULL", "F11"}, {"BACK", "ESC"},
+        {"TURBO", "HOLD SPACE"}, {"RESET", "F2"}, {"BOOST", "F3"}, {"WIDE", "F4"}, {"FULL", "F11"}, {"BACK", "ESC"},
     };
-    for (int i = 0; i < 11; i++) {
+    for (int i = 0; i < 12; i++) {
         text(x + 14, y + 24 + i * 11, rows[i][0], C_CYAN, 1);
         text(x + 86, y + 24 + i * 11, rows[i][1], C_WHITE, 1);
     }

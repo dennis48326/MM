@@ -91,7 +91,12 @@ static int find_rom(const char *given) {
 #define SRC_Y0 8
 
 static HWND hwnd;
-static uint32_t pixels[SRC_H * SRC_W];
+static uint32_t pixels[SRC_H * (SRC_W + 2 * WIDE_MAX)];
+static int img_w = SRC_W;        /* composed picture width (wider in true widescreen) */
+/* 0 = original 4:3, 1 = stretched to fill, 2 = extended (true widescreen) */
+static int wide_mode;
+extern const WideProvider *const game_wide_provider;
+static int window_scale = 3;
 static BITMAPINFO bmi;
 static LARGE_INTEGER qpf, next_tick;
 static double frame_ticks;
@@ -199,15 +204,35 @@ static uint8_t read_pad(int player) {
 }
 
 /* ---------------- video ---------------- */
+static int stretching(void) { return wide_mode == 1 || (wide_mode == 2 && !game_wide_provider); }
+
+/* true widescreen: add enough columns per side to match the window's shape */
+static void update_wide(void) {
+    RECT rc; GetClientRect(hwnd, &rc);
+    int ext = 0;
+    if (wide_mode == 2 && game_wide_provider && rc.bottom > 0) {
+        int tw = (int)((long long)rc.right * SRC_H / rc.bottom);
+        ext = (tw - SRC_W) / 2;
+        if (ext < 0) ext = 0;
+        if (ext > WIDE_MAX) ext = WIDE_MAX;
+    }
+    wide_prov = ext ? game_wide_provider : NULL;
+    wide_ext = ext;
+    img_w = SRC_W + 2 * ext;
+    bmi.bmiHeader.biWidth = img_w;
+}
+
 static void present(HDC dc) {
     RECT rc; GetClientRect(hwnd, &rc);
     int cw = rc.right, ch = rc.bottom;
     if (cw <= 0 || ch <= 0) return;
-    int scale_w = cw * SRC_H, scale_h = ch * SRC_W;
-    int dw, dh;
-    if (scale_w > scale_h) { dh = ch; dw = ch * SRC_W / SRC_H; } else { dw = cw; dh = cw * SRC_H / SRC_W; }
-    int ix = cw / SRC_W, iy = ch / SRC_H, is = ix < iy ? ix : iy;
-    if (is >= 1 && is * SRC_W >= dw - SRC_W / 2) { dw = is * SRC_W; dh = is * SRC_H; } /* prefer integer scale */
+    int iw = img_w, dw, dh;
+    if (stretching()) { dw = cw; dh = ch; }
+    else {
+        if ((long long)cw * SRC_H > (long long)ch * iw) { dh = ch; dw = ch * iw / SRC_H; } else { dw = cw; dh = cw * SRC_H / iw; }
+        int ix = cw / iw, iy = ch / SRC_H, is = ix < iy ? ix : iy;
+        if (is >= 1 && is * iw >= dw - iw / 2) { dw = is * iw; dh = is * SRC_H; } /* prefer integer scale */
+    }
     int x0 = (cw - dw) / 2, y0 = (ch - dh) / 2;
     HBRUSH black = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RECT r;
@@ -216,7 +241,7 @@ static void present(HDC dc) {
     r = (RECT){0, y0, x0, y0 + dh}; FillRect(dc, &r, black);
     r = (RECT){x0 + dw, y0, cw, y0 + dh}; FillRect(dc, &r, black);
     SetStretchBltMode(dc, COLORONCOLOR);
-    StretchDIBits(dc, x0, y0, dw, dh, 0, 0, SRC_W, SRC_H, pixels, &bmi, DIB_RGB_COLORS, SRCCOPY);
+    StretchDIBits(dc, x0, y0, dw, dh, 0, 0, iw, SRC_H, pixels, &bmi, DIB_RGB_COLORS, SRCCOPY);
 }
 
 static void toggle_fullscreen(void) {
@@ -237,6 +262,7 @@ static void toggle_fullscreen(void) {
         ShowCursor(TRUE);
     }
     fullscreen ^= 1;
+    update_wide();
 }
 
 #define BOOST_LINES 4000
@@ -259,12 +285,35 @@ static void set_title(void) {
     SetWindowTextA(hwnd, t);
 }
 
+static void size_window_for_mode(void) {
+    if (fullscreen) return;
+    int h = SRC_H * window_scale;
+    int w = wide_mode ? h * 16 / 9 : SRC_W * window_scale;
+    RECT r = {0, 0, w, h};
+    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+    SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
+}
+
+static void osd_wide(void) {
+    if (wide_mode == 0) osd_show("4:3 ORIGINAL", "F4: WIDESCREEN MODES", OSD_WHITE, 150);
+    else if (wide_mode == 1) osd_show("WIDESCREEN: STRETCH", "PICTURE STRETCHED TO FILL", OSD_WHITE, 150);
+    else if (game_wide_provider) osd_show("WIDESCREEN: EXTENDED", "MORE OF THE LEVEL ON EACH SIDE", OSD_YELLOW, 150);
+    else osd_show("EXTENDED NOT READY YET", "MEGA MAN 2 ONLY - USING STRETCH", OSD_LIGHT, 180);
+}
+
+static void set_wide_mode(int m) {
+    wide_mode = m;
+    size_window_for_mode();
+    update_wide();
+}
+
 static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CLOSE: quitting = 1; DestroyWindow(h); return 0;
     case WM_DESTROY: PostQuitMessage(0); return 0;
     case WM_PAINT: { PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps); present(dc); EndPaint(h, &ps); return 0; }
     case WM_ERASEBKGND: return 1;
+    case WM_SIZE: update_wide(); break;
     case WM_SYSKEYDOWN:
         if (wp == VK_RETURN) { toggle_fullscreen(); return 0; }
         break;
@@ -282,6 +331,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case 'P': case VK_PAUSE: paused ^= 1; set_title(); if (!paused) osd_show("RESUME", NULL, OSD_WHITE, 45); return 0;
         case VK_F2: want_reset = 1; osd_show("RESET", NULL, OSD_WHITE, 90); return 0;
         case VK_F3: set_boost(!opt_extra_lines); set_title(); osd_boost(); return 0;
+        case VK_F4: set_wide_mode((wide_mode + 1) % 3); osd_wide(); return 0;
         case VK_OEM_3: case VK_SPACE: fast = 1; set_title(); return 0;
         }
         break;
@@ -324,9 +374,15 @@ static void wait_next_frame(void) {
 }
 
 static void compose(void) {
-    const uint8_t *src = &framebuffer[SRC_Y0][0];
-    for (int i = 0; i < SRC_W * SRC_H; i++) pixels[i] = nes_palette[src[i] & 63];
-    osd_draw(pixels, SRC_W, SRC_H);
+    int e = wide_ext, w = img_w;
+    for (int y = 0; y < SRC_H; y++) {
+        uint32_t *d = pixels + y * w;
+        int line = SRC_Y0 + y;
+        for (int x = 0; x < e; x++) d[x] = nes_palette[wide_left[line][x] & 63];
+        for (int x = 0; x < SRC_W; x++) d[e + x] = nes_palette[framebuffer[line][x] & 63];
+        for (int x = 0; x < e; x++) d[e + SRC_W + x] = nes_palette[wide_right[line][x] & 63];
+    }
+    osd_draw(pixels, w, SRC_H);
     HDC dc = GetDC(hwnd); present(dc); ReleaseDC(hwnd, dc);
 }
 
@@ -372,6 +428,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
         else if (!strcmp(a, "--volume") && i + 1 < __argc) opt_volume = atoi(__argv[++i]);
         else if (!strcmp(a, "--boost")) set_boost(1);
         else if (!strcmp(a, "--launcher")) from_launcher = 1;
+        else if (!strcmp(a, "--wide") && i + 1 < __argc) wide_mode = atoi(__argv[++i]) % 3;
         else if (!strcmp(a, "--rom") && i + 1 < __argc) rom_arg = __argv[++i];
     }
     if (!find_rom(rom_arg)) {
@@ -396,13 +453,22 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
             while (scale > 1 && SRC_H * scale > sh - 60) scale--;
         }
     }
-    RECT r = {0, 0, SRC_W * scale, SRC_H * scale};
+    bmi.bmiHeader.biSize = sizeof bmi.bmiHeader;
+    bmi.bmiHeader.biWidth = SRC_W;
+    bmi.bmiHeader.biHeight = -SRC_H;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    window_scale = scale;
+    if (wide_mode < 0) wide_mode = 0;
+    RECT r = {0, 0, wide_mode ? SRC_H * scale * 16 / 9 : SRC_W * scale, SRC_H * scale};
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
     hwnd = CreateWindowA("NesNativeGame", game_title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                          r.right - r.left, r.bottom - r.top, NULL, NULL, inst, NULL);
     ShowWindow(hwnd, show);
     UpdateWindow(hwnd);
     if (opt_fullscreen) toggle_fullscreen();
+    update_wide();
     set_title();
     {   /* "Mega Man 3 - native" -> "MEGA MAN 3" for the start-up banner */
         int n = 0;
@@ -414,12 +480,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
                  OSD_WHITE, 180);
     }
 
-    bmi.bmiHeader.biSize = sizeof bmi.bmiHeader;
-    bmi.bmiHeader.biWidth = SRC_W;
-    bmi.bmiHeader.biHeight = -SRC_H;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
 
     QueryPerformanceFrequency(&qpf);
     frame_ticks = qpf.QuadPart / (1789773.0 / 29780.5);

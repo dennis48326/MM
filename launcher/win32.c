@@ -18,7 +18,7 @@ static HWND hwnd;
 static int scale = 3;
 static uint32_t fb[LW * LH];
 static BITMAPINFO bmi;
-static LSettings set = {0, 3, 20, 1, 0, 1};
+static LSettings set = {0, 3, 20, 1, 0, 1, 0};
 static char exe_dir[MAX_PATH], ini_path[MAX_PATH];
 
 /* MD5s of the supplied ROMs: whole .nes file, and everything after the 16-byte
@@ -79,6 +79,8 @@ static void load_settings(void) {
     set.last_game = GetPrivateProfileIntA("launcher", "last_game", 0, ini_path);
     if (set.last_game < 0 || set.last_game > 5) set.last_game = 0;
     set.boost = GetPrivateProfileIntA("game", "boost", 1, ini_path) ? 1 : 0;
+    set.wide = GetPrivateProfileIntA("game", "wide", 0, ini_path);
+    if (set.wide < 0 || set.wide > 2) set.wide = 0;
     if (set.scale < 2 || set.scale > 4) set.scale = 3;
     if (set.volume < 0 || set.volume > VOL_MAX) set.volume = 20;
 }
@@ -90,6 +92,7 @@ static void save_settings(void) {
     sprintf(b, "%d", set.music); WritePrivateProfileStringA("launcher", "music", b, ini_path);
     sprintf(b, "%d", set.last_game); WritePrivateProfileStringA("launcher", "last_game", b, ini_path);
     sprintf(b, "%d", set.boost); WritePrivateProfileStringA("game", "boost", b, ini_path);
+    sprintf(b, "%d", set.wide); WritePrivateProfileStringA("game", "wide", b, ini_path);
 }
 
 /* ---------------- audio ---------------- */
@@ -187,7 +190,7 @@ static int launch_game(void) {
         return 1;
     }
     char cmd2[MAX_PATH * 2 + 160];
-    snprintf(cmd2, sizeof cmd2, "\"%s\" --launcher --scale %d --volume %d%s%s --rom \"%s\"", path, set.scale,
+    snprintf(cmd2, sizeof cmd2, "\"%s\" --launcher --wide %d --scale %d --volume %d%s%s --rom \"%s\"", path, set.wide, set.scale,
              (set.volume * 100 + VOL_MAX / 2) / VOL_MAX, set.fullscreen ? " --fullscreen" : "",
              set.boost ? " --boost" : "", rom_found[g]);
     STARTUPINFOA si = {sizeof si};

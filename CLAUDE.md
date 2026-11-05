@@ -19,11 +19,12 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
 `launcher/win32.c`. The test host takes a ROM path on the command line.
 
 ## Toolchain (cloud session)
-- Linux gcc for the test host: `gcc -O2 -w -o mmtest src/nes.c src/host_test.c`
-  and `gcc -O2 -w -Isrc -DRECOMP -o mmtest_rcN src/nes.c src/host_test.c games/mmN/rc_*.c`.
+- Linux gcc for the test host: `gcc -O2 -w -o mmtest src/nes.c src/host_test.c src/wide_mm2.c`
+  and `gcc -O2 -w -Isrc -DRECOMP -o mmtest_rcN src/nes.c src/host_test.c src/wide_mm2.c games/mmN/rc_*.c`.
 - Windows exes are cross-compiled with llvm-mingw (download the ubuntu x86_64 ucrt tarball from
   github.com/mstorsjo/llvm-mingw releases): `x86_64-w64-mingw32-gcc`, `x86_64-w64-mingw32-windres`.
-  Game exe: `src/nes.c src/host_win32.c src/osd.c src/md5.c games/mmN/*.c appN.res.o -mwindows -lwinmm -static`.
+  Game exe: `src/nes.c src/host_win32.c src/osd.c src/md5.c games/mmN/*.c appN.res.o -mwindows -lwinmm -static`
+  (MM2 also `src/wide_mm2.c`; `games/mmN/rom_data.c` names the game's widescreen provider or 0).
   Launcher: `-Isrc launcher/win32.c launcher/core.c src/md5.c launcher.res.o -mwindows -lwinmm -static`.
 
 ## Verification (do this after any runtime or recompiler change)
@@ -36,7 +37,17 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
    prefixes are in README / git history. `-c cov.bin` records coverage; feed it to recomp.py.
 3. Original mode must not change: interpreter hashes with boost off should match earlier runs.
 
+## Widescreen (extended mode)
+- Generic part in `src/nes.c` (`wide_line`, `wide_check`): draws `wide_ext` extra columns per side into
+  `wide_left/right` from a `WideProvider` (begin: camera from RAM; tile: world tile -> tile+palette, 0 = dark).
+  Per-frame self-check vs the nametable (85% threshold) keeps it dark on menus/transitions.
+- Providers: `src/wide_mm2.c` done (format notes in the file). MM1, MM3-6 still to do: find the game's
+  block/metatile builder and camera/room-limit RAM, write `wide_mmN.c`, pass it to `tools/embed.py`.
+- Test: `mmtest run ROM N -i script --wide 72 -s shot 100` (screenshots include the extra columns);
+  interp vs recompiled hashes must also match with `--wide`.
+- Debug hooks in the test host: `-w ppu.txt` logs PPU register writes with PC, `-r ram.bin` dumps RAM per frame.
+
 ## Conventions
 - Boost = 4000 extra CPU-only scanlines after line 240 (APU frozen) + no 8-sprite limit.
-- Game exes take `--fullscreen --scale N --volume 0-100 --boost --launcher --rom path`.
+- Game exes take `--fullscreen --scale N --volume 0-100 --boost --wide 0|1|2 --launcher --rom path`.
 - Keep the repo private (generated code is ROM-derived). Never commit .nes files.

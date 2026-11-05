@@ -16,8 +16,9 @@ original chiptune loop and a beam-in animation when a game starts.
   (shown in yellow).
 * **MODE** switches between **BOOST** (no slowdown, no flicker) and **ORIG**
   (plays exactly like the NES). See "Boost mode" below.
-* **VIDEO** switches between window and fullscreen, and **SCALE** cycles 2x,
-  3x and 4x. **MUSIC** turns the launcher music on or off.
+* **WIDE** cycles 4:3, FILL (stretch) and EXT (extended level view, Mega Man 2
+  for now). **VIDEO** cycles window 2x, 3x, 4x and fullscreen. **MUSIC** turns
+  the launcher music on or off.
 * **VOL**: the energy bar on the left sets the volume for the launcher and the
   games. Move left onto it and press up or down, use the mouse wheel, press
   + or -, or click the bar.
@@ -26,7 +27,7 @@ original chiptune loop and a beam-in animation when a game starts.
 * Settings are saved in `launcher.ini` next to the exe.
 
 Each game can also be run directly with `--fullscreen`, `--scale N`,
-`--volume 0-100`, `--boost` and `--rom path`. The launcher also passes `--launcher`, which
+`--volume 0-100`, `--boost`, `--wide 0|1|2` and `--rom path`. The launcher also passes `--launcher`, which
 makes Esc return to it.
 
 ## ROM detection
@@ -100,6 +101,43 @@ was also checked frame-exact between the recompiled code and the reference
 interpreter for all six games. Press **F3** in a game to switch between boost
 and original on the fly.
 
+## Widescreen
+
+Press **F4** in a game, or use the launcher's **WIDE** panel, to cycle through
+three modes:
+
+* **4:3** is the original picture.
+* **FILL** stretches the 4:3 picture to fill the window or monitor. It works
+  in all six games.
+* **EXT** (extended) is true widescreen. The game shows more of the level on
+  each side, with as many extra columns as the window's shape needs: about 71
+  per side at 16:9 and up to 160 per side for ultrawide. This currently works
+  in **Mega Man 2**. The other games fall back to FILL until their level
+  formats are added.
+
+How extended mode works:
+
+* **Level data:** each game has a small "level provider" (`src/wide_mm2.c`)
+  that reads the level straight from the ROM, using the camera position and
+  room limits the game keeps in RAM. For Mega Man 2 these are 32×32 blocks
+  stored column by column, with metatile and attribute tables in the stage
+  bank. The runtime draws those columns beside the normal 256-pixel picture
+  using the current tiles and palettes. It also fills in the 8-pixel strip the
+  game blanks on the left edge.
+* **Background only:** enemies and items appear exactly when the original game
+  spawns them, so gameplay is unchanged.
+* **Room edges:** past a room's locked scroll edge (stage starts, shafts, boss
+  rooms) the extra area is dark.
+* **Self-check:** every frame, the provider's tiles are compared against what
+  the game itself has put on screen. If fewer than 85% match (pause or weapon
+  menu, continue screen, vertical screen transitions, cutscenes) the extra
+  area stays dark for that frame. It never shows the wrong thing.
+* **No effect when off:** with widescreen off the game runs exactly as before.
+  Original and boost modes were re-checked frame for frame, and in extended
+  mode the recompiled code and the reference interpreter still agree.
+
+The launcher passes `--wide 0|1|2`.
+
 ## Controls
 
 | NES        | Keyboard               | Xbox pad     |
@@ -111,7 +149,7 @@ and original on the fly.
 | Select     | Right Shift or Tab     | Back         |
 
 * **P** pause · **Space** or **`** (hold) fast-forward · **F2** reset
-* **F3** boost on/off · **F11** or **Alt+Enter** fullscreen or windowed
+* **F3** boost on/off · **F4** widescreen 4:3 / fill / extended · **F11** or **Alt+Enter** fullscreen or windowed
 * **Esc**: if the game was started from the launcher, returns to the launcher.
   If it was started directly, it leaves fullscreen first and then quits.
 
@@ -213,7 +251,8 @@ matched the interpreter exactly, with zero fallback instructions.
 
 ```
 src/            runtime: nes.c (CPU interpreter, PPU, APU, mappers), host_win32.c (window, sound, input,
-                ROM loading), osd.c (on-screen banner), md5.c, host_test.c (headless test host)
+                ROM loading), osd.c (on-screen banner), md5.c, wide_*.c (widescreen level providers),
+                host_test.c (headless test host)
 games/mm1..mm6/ generated per game: recompiled C (rc_*.c), ROM identity (rom_data.c), disasm/ listings
 launcher/       launcher: core.c (art, menu, synth), win32.c (window, input, audio, ROM scan), font
 tools/          m6502.py (opcode semantics), recomp.py, gen_interp.py, embed.py, mkinput*.py

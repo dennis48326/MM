@@ -16,6 +16,7 @@ typedef struct {
     int music;       /* 0/1 */
     int last_game;   /* 0..5 = Mega Man 1..6 */
     int boost;       /* 1 = no slowdown / no flicker, 0 = original */
+    int wide;        /* 0 = 4:3, 1 = stretch, 2 = extended (true widescreen) */
 } LSettings;
 
 enum { EV_LEFT, EV_RIGHT, EV_UP, EV_DOWN, EV_OK, EV_BACK, EV_VOL_UP, EV_VOL_DOWN };

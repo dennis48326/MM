@@ -1,5 +1,5 @@
 /* ROM identity for Mega Man 3 - native. The ROM itself is loaded from the .nes file at run time. */
-#include <stdint.h>
+#include "nes.h"
 const char game_title[] = "Mega Man 3 - native";
 const char game_rom_name[] = "mega3.nes";
 const char game_md5_file[] = "6c591b7228fd31cbe0bf49243c012095";
@@ -9,3 +9,4 @@ const int game_chr_size = 131072;
 const int game_trainer = 0;
 const int game_vertical_mirror = 0;
 const int game_mapper = 4;
+const WideProvider *const game_wide_provider = 0;   /* no true widescreen yet */

@@ -13,7 +13,7 @@ MegaMan.exe: $(RT) $(wildcard games/mm1/*.c)
 	$(CC) $(CFLAGS) -Isrc -DRECOMP -o $@ $(RT) games/mm1/*.c app.res.o -mwindows -lwinmm -static
 MegaMan2.exe: $(RT) $(wildcard games/mm2/*.c)
 	$(WINDRES) -I res res/app2.rc -O coff -o app2.res.o
-	$(CC) $(CFLAGS) -Isrc -DRECOMP -o $@ $(RT) games/mm2/*.c app2.res.o -mwindows -lwinmm -static
+	$(CC) $(CFLAGS) -Isrc -DRECOMP -o $@ $(RT) src/wide_mm2.c games/mm2/*.c app2.res.o -mwindows -lwinmm -static
 MegaMan3.exe: $(RT) $(wildcard games/mm3/*.c)
 	$(WINDRES) -I res res/app3.rc -O coff -o app3.res.o
 	$(CC) $(CFLAGS) -Isrc -DRECOMP -o $@ $(RT) games/mm3/*.c app3.res.o -mwindows -lwinmm -static
@@ -35,7 +35,7 @@ regen:
 	python tools/recomp.py ../mega.nes games/mm1 coverage/coverage_mm1.bin
 	python tools/embed.py ../mega.nes games/mm1/rom_data.c "Mega Man - native"
 	python tools/recomp.py ../mega2.nes games/mm2 coverage/coverage_mm2.bin
-	python tools/embed.py ../mega2.nes games/mm2/rom_data.c "Mega Man 2 - native"
+	python tools/embed.py ../mega2.nes games/mm2/rom_data.c "Mega Man 2 - native" wide_mm2
 	python tools/recomp.py ../mega3.nes games/mm3 coverage/coverage_mm3.bin
 	python tools/embed.py ../mega3.nes games/mm3/rom_data.c "Mega Man 3 - native"
 	python tools/recomp.py ../mega4.nes games/mm4 coverage/coverage_mm4.bin
@@ -46,4 +46,4 @@ regen:
 	python tools/embed.py ../mega6.nes games/mm6/rom_data.c "Mega Man 6 - native"
 
 mmtest:
-	$(CC) $(CFLAGS) -o mmtest src/nes.c src/host_test.c
+	$(CC) $(CFLAGS) -o mmtest src/nes.c src/host_test.c src/wide_mm2.c

@@ -5,7 +5,7 @@ windres -I res res\app.rc -O coff -o app1.res.o || goto :err
 gcc -O2 -w -Isrc -DRECOMP -o MegaMan.exe src\nes.c src\host_win32.c src\osd.c src\md5.c games\mm1\rc_main.c games\mm1\rc_s0_b08.c games\mm1\rc_s0_b0A.c games\mm1\rc_s1_b0B.c games\mm1\rc_s1_b0D.c games\mm1\rc_s2_b0E.c games\mm1\rc_s3_b0F.c games\mm1\rom_data.c app1.res.o -mwindows -lwinmm -static || goto :err
 echo Built MegaMan.exe
 windres -I res res\app2.rc -O coff -o app2.res.o || goto :err
-gcc -O2 -w -Isrc -DRECOMP -o MegaMan2.exe src\nes.c src\host_win32.c src\osd.c src\md5.c games\mm2\rc_main.c games\mm2\rc_s0_b18.c games\mm2\rc_s0_b1A.c games\mm2\rc_s0_b1C.c games\mm2\rc_s1_b1B.c games\mm2\rc_s1_b1D.c games\mm2\rc_s2_b1E.c games\mm2\rc_s3_b1F.c games\mm2\rom_data.c app2.res.o -mwindows -lwinmm -static || goto :err
+gcc -O2 -w -Isrc -DRECOMP -o MegaMan2.exe src\nes.c src\host_win32.c src\osd.c src\md5.c src\wide_mm2.c games\mm2\rc_main.c games\mm2\rc_s0_b18.c games\mm2\rc_s0_b1A.c games\mm2\rc_s0_b1C.c games\mm2\rc_s1_b1B.c games\mm2\rc_s1_b1D.c games\mm2\rc_s2_b1E.c games\mm2\rc_s3_b1F.c games\mm2\rom_data.c app2.res.o -mwindows -lwinmm -static || goto :err
 echo Built MegaMan2.exe
 windres -I res res\app3.rc -O coff -o app3.res.o || goto :err
 gcc -O2 -w -Isrc -DRECOMP -o MegaMan3.exe src\nes.c src\host_win32.c src\osd.c src\md5.c games\mm3\rc_main.c games\mm3\rc_s0_b09.c games\mm3\rc_s0_b16.c games\mm3\rc_s0_b18.c games\mm3\rc_s0_b1A.c games\mm3\rc_s0_b1C.c games\mm3\rc_s1_b01.c games\mm3\rc_s1_b02.c games\mm3\rc_s1_b03.c games\mm3\rc_s1_b1D.c games\mm3\rc_s2_b1E.c games\mm3\rc_s3_b1F.c games\mm3\rom_data.c app3.res.o -mwindows -lwinmm -static || goto :err
