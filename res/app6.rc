@@ -1,0 +1,22 @@
+#include <windows.h>
+1 ICON "app.ico"
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Mega Man 6 (static recompilation, native Win64)"
+      VALUE "ProductName", "Mega Man 6 native"
+      VALUE "FileVersion", "1.0"
+      VALUE "OriginalFilename", "MegaMan6.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

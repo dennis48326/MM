@@ -1,0 +1,11 @@
+# ROM images are never committed
+*.nes
+# build outputs
+*.exe
+*.o
+*.res.o
+build/
+mmtest
+mmtest_rc*
+launcher.ini
+__pycache__/

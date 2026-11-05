@@ -1,0 +1,238 @@
+# Mega Man 1-6: native Windows builds (static recompilation)
+
+`MegaMan.exe` through `MegaMan6.exe` are native x86-64 Windows programs. Each game's 6502 machine
+code (from `mega.nes` through `mega6.nes`) was translated to C and compiled. It does not emulate the CPU at
+run time. Small C models of the NES picture chip (PPU), sound chip (APU) and
+controller replace the console hardware. The exes contain only the translated code. Each game's graphics, levels and
+music are read from your .nes file when it starts (see "ROM detection").
+
+## Launcher
+
+Double-click `Launcher.exe` for the front end, an animated pixel menu with an
+original chiptune loop and a beam-in animation when a game starts.
+
+* **MM1-MM6** (top row) start that game. The launcher hides while you play and
+  returns when the game closes, and it opens on the game you played last
+  (shown in yellow).
+* **MODE** switches between **BOOST** (no slowdown, no flicker) and **ORIG**
+  (plays exactly like the NES). See "Boost mode" below.
+* **VIDEO** switches between window and fullscreen, and **SCALE** cycles 2x,
+  3x and 4x. **MUSIC** turns the launcher music on or off.
+* **VOL**: the energy bar on the left sets the volume for the launcher and the
+  games. Move left onto it and press up or down, use the mouse wheel, press
+  + or -, or click the bar.
+* **KEYS** shows the game controls, and **INFO** shows build details.
+* To quit, use the small X at the top right or press Esc.
+* Settings are saved in `launcher.ini` next to the exe.
+
+Each game can also be run directly with `--fullscreen`, `--scale N`,
+`--volume 0-100`, `--boost` and `--rom path`. The launcher also passes `--launcher`, which
+makes Esc return to it.
+
+## ROM detection
+
+The programs don't contain any ROM data. They find your ROM files by content,
+not by name:
+
+* **Launcher:** it looks at every `.nes` file in its folder and computes each
+  file's MD5. It matches the MD5 against the six supplied ROMs, using either
+  the whole file or everything after the 16-byte iNES header, so a copy with a
+  different header still matches. It re-scans whenever its window becomes
+  active and after a game closes.
+* **Missing games:** a game whose ROM isn't found shows as an empty, crossed-out
+  cartridge, and INFO shows "NO ROM" for it. Matched games show "ROM OK".
+* **Starting a game:** the launcher passes the matched file to the game with
+  `--rom "path"`.
+* **Running a game directly:** each game checks its usual file name first,
+  then every `.nes` file in its folder. If no file matches, it shows a message
+  with the expected MD5s. A game always verifies the MD5 before running,
+  because the translated code only works with that exact ROM.
+
+| Game | MD5 (whole file) | MD5 (without header) |
+|------|------------------|----------------------|
+| Mega Man   | 8cfaa33b1ec522ce89ab82af2dd17da7 | 4de82cfceadbf1a5e693b669b1221107 |
+| Mega Man 2 | 302761a666ac89c21f185052d02127d3 | 0527a0ee512f69e08b8db6dc97964632 |
+| Mega Man 3 | 6c591b7228fd31cbe0bf49243c012095 | 4a53b6f58067d62c9a43404fe835dd5c |
+| Mega Man 4 | 7daebae488795835f962e875ee1f75e8 | db45eb9413964295adb8d1da961807cc |
+| Mega Man 5 | efc39ebe851e946f8258a45f8a08c44f | 4482fbbbc77e03266b979f5028d4b51d |
+| Mega Man 6 | 7a3fbab64ed19a5d5e08c38654af37aa | 00f8cbeba7db567d1083053b30a93ada |
+
+## Boost mode
+
+The NES CPU is slow. When a lot is happening on screen, the game's logic for a
+frame isn't done when the next frame starts, so the game skips a beat. That is
+the famous slowdown. The picture chip can also show only 8 sprites per
+scanline, so the games rotate sprites and they flicker.
+
+Boost mode fixes both. It doesn't change any game code:
+
+* **No slowdown:** after the last visible line of each frame, the runtime adds
+  4,000 extra scanlines in which only the CPU runs. The picture chip is idle,
+  the sound chip is paused and the cartridge chip's scanline counter doesn't
+  tick. The game gets about 15 times the console's CPU time to finish its frame
+  before the next vblank. Pacing stays at 60 frames per second, and music
+  tempo and pitch are unchanged (the sound chip produces exactly the same
+  samples per frame).
+* **No flicker:** the 8-sprites-per-line limit is lifted, so every sprite is
+  drawn every frame. The overflow flag is still reported to the game.
+
+**How this was measured.** For each game, I logged where the CPU was each time
+a frame's interrupt arrived during long scripted play sessions:
+
+* If the CPU was in the game's wait-for-next-frame loop, the frame finished
+  in time.
+* Anywhere else, or a missed interrupt, means a lag (slowdown) frame.
+
+Lag frames in those sessions:
+
+| Game | Original | Boost |
+|------|---------:|------:|
+| Mega Man   | 0.88% | 0% |
+| Mega Man 2 | 0.17% | 0% |
+| Mega Man 3 | 7.00% | 0% |
+| Mega Man 4 | 3.01% | 0% |
+| Mega Man 5 | 2.10% | 0% |
+| Mega Man 6 | 1.98% | 0% |
+
+Lower boost levels left a few lag frames in games 4-6 (Mega Man 6 still had 15
+at 2,000 extra lines). 4,000 cleared them all in the test sessions. Boost mode
+was also checked frame-exact between the recompiled code and the reference
+interpreter for all six games. Press **F3** in a game to switch between boost
+and original on the fly.
+
+## Controls
+
+| NES        | Keyboard               | Xbox pad     |
+|------------|------------------------|--------------|
+| D-pad      | Arrow keys or WASD     | D-pad / left stick |
+| A (jump)   | X or K                 | A            |
+| B (shoot)  | Z or J                 | X or B       |
+| Start      | Enter                  | Start        |
+| Select     | Right Shift or Tab     | Back         |
+
+* **P** pause · **Space** or **`** (hold) fast-forward · **F2** reset
+* **F3** boost on/off · **F11** or **Alt+Enter** fullscreen or windowed
+* **Esc**: if the game was started from the launcher, returns to the launcher.
+  If it was started directly, it leaves fullscreen first and then quits.
+
+A small on-screen banner confirms each action: the game name and mode at
+start-up, BOOST ON/OFF, FULLSCREEN/WINDOWED, PAUSED, RESET and FAST FORWARD.
+It is drawn in the game's own pixel resolution, so it scales with the picture,
+slides in, and fades out after a couple of seconds.
+
+## How it was made
+
+1. **Disassembly and code discovery** (`tools/recomp.py`). The tool follows the
+   code from the reset, NMI and IRQ vectors. It adds every address the reference
+   interpreter executed during scripted play of all six stages
+   (`coverage/coverage.bin`). It found 9,999 instructions: 4,090 in the fixed
+   bank ($C000) and the rest in switchable banks 4, 5 and 6. Banks 0 to 3 hold
+   only data. `gen/disasm/*.asm` contains a labeled listing of every bank.
+2. **Translation to C** (`gen/rc_*.c`). Each instruction becomes C code with
+   its exact cycle count. Each instruction also gets a label that both static
+   jumps and the dispatcher can reach. The dispatcher handles `RTS`, `JMP ()`
+   and bank-switched code. NMIs are taken at instruction boundaries, the same as
+   on hardware.
+3. **Safety net.** If execution reaches an address that was never discovered,
+   for example code in RAM, a small interpreter runs it until control returns
+   to translated code. In the test runs this almost never happened (0 to 81
+   instructions out of about 115 million).
+4. **Verification.** The interpreter in `src/nes.c` (`src/interp_gen.inc`) is
+   built from the same opcode table as the recompiler. It passes `nestest`
+   (8,991 instructions, cycle-exact) and all 16 blargg `instr_test-v5` ROMs. The
+   recompiled build and the interpreter were run with the same controller input
+   for 12,000 to 20,000 frames. They produced identical RAM and screen hashes on
+   every frame, including runs whose input was not used for code discovery.
+
+## Mega Man 2
+
+Mega Man 2 uses the MMC1 mapper (256 KB PRG). The runtime supports MMC1's
+serial register, all four PRG banking modes and mirroring control. That
+support passes blargg's MMC1-based `official_only` test. Code discovery played
+all eight Robot Master stages and Wily stage 1, reached with the all-bosses
+password. Discovery found 11,727 instructions: 3,814 in the fixed bank and the
+rest in banks 12, 13 and 14. On 15,000-frame held-out runs, including one in
+Wily's castle, the recompiled build matched the interpreter exactly with zero
+fallback instructions.
+
+`MegaMan.exe` was rebuilt on the new runtime and re-verified against its
+interpreter.
+
+## Mega Man 3
+
+Mega Man 3 uses the MMC3 mapper (256 KB PRG, 128 KB CHR ROM). For it the
+runtime was generalized:
+
+* PRG ROM is mapped in four 8 KB slots and CHR in eight 1 KB pages.
+* The MMC3's bank registers, mirroring and scanline IRQ counter are
+  implemented.
+* After `CLI`, `PLP` and `RTI`, the CPU checks right away for a pending IRQ.
+
+The recompiler now works in 8 KB regions, one per bank and slot. At run time
+the dispatcher picks the region for the bank actually mapped where the program
+counter is, so code reached through bank switching is always correct.
+
+Code discovery played all eight Robot Master stages. It found 11,912
+instructions in 11 bank/slot regions. On four 15,000-frame held-out runs, the
+recompiled build matched the interpreter exactly on every frame. Three of
+those runs needed no fallback instructions at all. One run reached code that
+discovery hadn't seen, and the interpreter ran 6,364 instructions there.
+
+Mega Man and Mega Man 2 were regenerated with the new recompiler and
+re-verified against the interpreter on held-out runs.
+
+## Mega Man 4
+
+Mega Man 4 is also an MMC3 game, with 512 KB PRG ROM and CHR RAM. It needed no
+runtime changes. Code discovery played all eight Robot Master stages. It found
+13,468 instructions in 11 bank/slot regions. Four 15,000-frame held-out runs
+matched the interpreter exactly on every frame, with zero fallback
+instructions.
+
+## Mega Man 5
+
+Mega Man 5 is an MMC3 game with 256 KB PRG and 256 KB CHR ROM. Code discovery
+played all eight Robot Master stages. It found 13,455 instructions in 13
+bank/slot regions. Four 15,000-frame held-out runs matched the interpreter
+exactly, with zero fallback instructions.
+
+While working on Mega Man 5, I improved the recompiler to also translate
+instructions that straddle two 8 KB slots, when the next slot's bank is fixed
+by the hardware. Mega Man 1 and 2 were regenerated with this change and
+re-verified. Neither now falls back to the interpreter in testing.
+
+## Mega Man 6
+
+Mega Man 6 is an MMC3 game with 512 KB PRG ROM and CHR RAM. It needed no
+runtime changes. Code discovery played all eight Robot Master stages. It found
+11,773 instructions in 12 bank/slot regions. One bank runs from two different
+slots, so its listing has one file per slot. Four 15,000-frame held-out runs
+matched the interpreter exactly, with zero fallback instructions.
+
+## Repository layout
+
+```
+src/            runtime: nes.c (CPU interpreter, PPU, APU, mappers), host_win32.c (window, sound, input,
+                ROM loading), osd.c (on-screen banner), md5.c, host_test.c (headless test host)
+games/mm1..mm6/ generated per game: recompiled C (rc_*.c), ROM identity (rom_data.c), disasm/ listings
+launcher/       launcher: core.c (art, menu, synth), win32.c (window, input, audio, ROM scan), font
+tools/          m6502.py (opcode semantics), recomp.py, gen_interp.py, embed.py, mkinput*.py
+res/            icons and version resources
+coverage/       code-coverage maps used for discovery (one per game)
+```
+
+ROM files (`*.nes`) and built exes are not committed (see `.gitignore`). This
+repository should stay **private**: the generated code and listings in
+`games/` are derived from Capcom's ROMs.
+
+## Rebuilding
+
+To rebuild on Windows with MinGW-w64 (gcc and windres on PATH), run `build.bat`
+in the repository root. It builds both exes. With make, run `make -f Makefile.mk`.
+
+To regenerate the C code from the ROM, run `make -f Makefile.mk regen`. This needs Python 3 and
+looks for `mega.nes` through `mega6.nes` one folder above the repository.
+
+The tools handle UxROM (mapper 2), MMC1 (mapper 1) and MMC3 (mapper 4) games. Save states are not supported: translated code
+keeps the game's place on the native call stack, so it cannot be captured
+mid-frame.
