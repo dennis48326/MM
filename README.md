@@ -128,7 +128,7 @@ slides in, and fades out after a couple of seconds.
    (`coverage/coverage_mm1.bin`). It found 9,999 instructions: 4,090 in the fixed
    bank ($C000) and the rest in switchable banks 4, 5 and 6. Banks 0 to 3 hold
    only data. `games/mm1/disasm/*.asm` contains a labeled listing of every 8 KB bank.
-2. **Translation to C** (`gen/rc_*.c`). Each instruction becomes C code with
+2. **Translation to C** (`games/mmN/rc_*.c`). Each instruction becomes C code with
    its exact cycle count. Each instruction also gets a label that both static
    jumps and the dispatcher can reach. The dispatcher handles `RTS`, `JMP ()`
    and bank-switched code. NMIs are taken at instruction boundaries, the same as
