@@ -125,9 +125,9 @@ slides in, and fades out after a couple of seconds.
 1. **Disassembly and code discovery** (`tools/recomp.py`). The tool follows the
    code from the reset, NMI and IRQ vectors. It adds every address the reference
    interpreter executed during scripted play of all six stages
-   (`coverage/coverage.bin`). It found 9,999 instructions: 4,090 in the fixed
+   (`coverage/coverage_mm1.bin`). It found 9,999 instructions: 4,090 in the fixed
    bank ($C000) and the rest in switchable banks 4, 5 and 6. Banks 0 to 3 hold
-   only data. `gen/disasm/*.asm` contains a labeled listing of every bank.
+   only data. `games/mm1/disasm/*.asm` contains a labeled listing of every 8 KB bank.
 2. **Translation to C** (`gen/rc_*.c`). Each instruction becomes C code with
    its exact cycle count. Each instruction also gets a label that both static
    jumps and the dispatcher can reach. The dispatcher handles `RTS`, `JMP ()`
