@@ -16,8 +16,7 @@ original chiptune loop and a beam-in animation when a game starts.
   (shown in yellow).
 * **MODE** switches between **BOOST** (no slowdown, no flicker) and **ORIG**
   (plays exactly like the NES). See "Boost mode" below.
-* **WIDE** cycles 4:3, FILL (stretch) and EXT (extended level view, Mega Man 2
-  for now). **VIDEO** cycles window 2x, 3x, 4x and fullscreen. **MUSIC** turns
+* **WIDE** cycles 4:3, FILL (stretch) and EXT (extended level view). **VIDEO** cycles window 2x, 3x, 4x and fullscreen. **MUSIC** turns
   the launcher music on or off.
 * **VOL**: the energy bar on the left sets the volume for the launcher and the
   games. Move left onto it and press up or down, use the mouse wheel, press
@@ -111,27 +110,38 @@ three modes:
   in all six games.
 * **EXT** (extended) is true widescreen. The game shows more of the level on
   each side, with as many extra columns as the window's shape needs: about 71
-  per side at 16:9 and up to 160 per side for ultrawide. This currently works
-  in **Mega Man 2**. The other games fall back to FILL until their level
-  formats are added.
+  per side at 16:9 and up to 160 per side for ultrawide. It works in all six
+  games.
 
 How extended mode works:
 
-* **Level data:** each game has a small "level provider" (`src/wide_mm2.c`)
-  that reads the level straight from the ROM, using the camera position and
-  room limits the game keeps in RAM. For Mega Man 2 these are 32×32 blocks
-  stored column by column, with metatile and attribute tables in the stage
-  bank. The runtime draws those columns beside the normal 256-pixel picture
-  using the current tiles and palettes. It also fills in the 8-pixel strip the
-  game blanks on the left edge.
+* **Level data:** each game has a small "level provider" (`src/wide_mm1.c` ..
+  `src/wide_mm6.c`) that reads the level straight from the ROM, using the
+  camera position and room limits the game keeps in RAM. The runtime draws
+  those columns beside the normal 256-pixel picture, line by line, using the
+  current tiles and palettes. It also fills in the 8-pixel strip the game
+  blanks on the left edge. Formats, all reverse-engineered from each game's own
+  block builder (details at the top of each file):
+
+  | Game | Level format | Rooms |
+  |------|--------------|-------|
+  | Mega Man | screens of 8×8 blocks (32×32 px), column by column, in the stage's 16 KB bank | camera limits `$27..$28` |
+  | Mega Man 2 | same idea, 16 KB stage bank | room screens `$14..$15` |
+  | Mega Man 3 | screen list + 8×8-block layouts, row by row, in an 8 KB stage bank | section table, current section `$2B` |
+  | Mega Man 4 | as Mega Man 3, different addresses | section table + sections joined to the right |
+  | Mega Man 5 | as Mega Man 4, layouts in a second graphics bank | section table + joined sections |
+  | Mega Man 6 | one 256-byte page per block row, all screens side by side | scroll-lock flags set by trigger objects (`$71`) |
 * **Background only:** enemies and items appear exactly when the original game
   spawns them, so gameplay is unchanged.
 * **Room edges:** past a room's locked scroll edge (stage starts, shafts, boss
   rooms) the extra area is dark.
-* **Self-check:** every frame, the provider's tiles are compared against what
-  the game itself has put on screen. If fewer than 85% match (pause or weapon
-  menu, continue screen, vertical screen transitions, cutscenes) the extra
-  area stays dark for that frame. It never shows the wrong thing.
+* **Self-check:** while each frame is drawn, the tiles the game really shows
+  are sampled line by line and compared with the provider. If fewer than 85%
+  match (pause or weapon menu, continue screen, vertical screen transitions,
+  cutscenes) the extra area stays dark for that frame. It never shows the
+  wrong thing. Lines with their own scroll (Gemini Man's star field, split
+  screens) stay dark, and rooms that sit a few rows off the nametable grid
+  (some vertical rooms in Mega Man 5) are found automatically.
 * **Energy bars:** in both FILL and EXT, the boss's energy bar moves to the
   right edge of the picture, mirroring Mega Man's bar on the left. In EXT, Mega
   Man's life and weapon bars also move out to the left edge of the wider

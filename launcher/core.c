@@ -414,7 +414,7 @@ static void draw_title(void) {
             text_c(LW / 2, 34, b, C_RED, 1);
         }
     } else if (state == ST_MENU && focus == IT_WIDE) {
-        static const char *wt[3] = {"WIDESCREEN OFF: ORIGINAL 4:3", "WIDESCREEN: STRETCH TO FILL", "WIDESCREEN: EXTENDED LEVEL (MM2)"};
+        static const char *wt[3] = {"WIDESCREEN OFF: ORIGINAL 4:3", "WIDESCREEN: STRETCH TO FILL", "WIDESCREEN: EXTENDED LEVEL VIEW"};
         text_c(LW / 2, 34, wt[S->wide % 3], S->wide == 2 ? C_YELLOW : C_LIGHT, 1);
     } else if (state == ST_MENU && focus == IT_MODE) {
         text_c(LW / 2, 34, S->boost ? "BOOST: NO SLOWDOWN, NO FLICKER" : "ORIGINAL: PLAYS LIKE THE NES",

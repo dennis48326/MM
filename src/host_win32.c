@@ -299,7 +299,7 @@ static void osd_wide(void) {
     if (wide_mode == 0) osd_show("4:3 ORIGINAL", "F4: WIDESCREEN MODES", OSD_WHITE, 150);
     else if (wide_mode == 1) osd_show("WIDESCREEN: STRETCH", "PICTURE STRETCHED TO FILL", OSD_WHITE, 150);
     else if (game_wide_provider) osd_show("WIDESCREEN: EXTENDED", "MORE OF THE LEVEL ON EACH SIDE", OSD_YELLOW, 150);
-    else osd_show("EXTENDED NOT READY YET", "MEGA MAN 2 ONLY - USING STRETCH", OSD_LIGHT, 180);
+    else osd_show("EXTENDED NOT AVAILABLE", "USING STRETCH INSTEAD", OSD_LIGHT, 180);
 }
 
 static void set_wide_mode(int m) {

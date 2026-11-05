@@ -172,53 +172,75 @@ static void ppu_mem_write(uint16_t a, uint8_t v) {
 }
 
 /* ---------------- widescreen ----------------
-   A per-game provider maps world tile positions to level tiles straight from
-   the ROM. Extra columns are drawn on both sides of the 256-pixel picture.
-   Each frame the provider's answer is checked against what the game itself
-   put in the nametables; if they disagree (menus, transitions, cutscenes)
-   the extra area stays dark, so it can never show the wrong thing. */
+   A per-game provider (src/wide_mmN.c) maps world tile positions to level tiles
+   straight from the ROM. Extra columns are drawn on both sides of the 256-pixel
+   picture, line by line, following each line's own scroll. While the picture is
+   drawn, tiles the game really shows are sampled; at the end of the frame they
+   are compared with the provider, and unless 85% agree (menus, transitions,
+   cutscenes, anything the provider does not know) the extra area is blanked,
+   so it never shows the wrong thing. */
 int wide_ext;
 uint8_t wide_left[240][WIDE_MAX], wide_right[240][WIDE_MAX];
 const WideProvider *wide_prov;
-int wide_active;                 /* this frame's check passed */
-static uint32_t wide_checked_frame = 0xFFFFFFFF;
+int wide_active;                 /* the last frame's check passed */
+uint32_t wide_stat_level, wide_stat_active; int wide_last_pct;   /* test statistics: frames in a level / check passed */
+static uint32_t wide_frame = 0xFFFFFFFF;
+static int wide_level;           /* this frame: provider says "in a level" */
 static int wide_cam;             /* provider's camera x (world pixels) */
+static int wide_dy;              /* level row = nametable row + wide_dy (vertically offset rooms) */
+static int wide_prev_ok;         /* last frame passed the check (with this wide_dy) */
+#define WIDE_MAXS 512
+static int wide_ns;              /* samples of what the game really showed this frame */
+static int16_t ws_tx[WIDE_MAXS]; static uint8_t ws_row[WIDE_MAXS], ws_nt[WIDE_MAXS];
 
-static int wide_world_left(uint16_t v) {
-    int nt_x = (((v & 0x1F) << 3) | ppu_x) + ((v >> 10) & 1) * 256;
-    int d = ((nt_x - wide_cam) % 512 + 512) % 512;
-    if (d >= 256) d -= 512;
-    return wide_cam + d;
+/* World x of the line's left edge, from the scroll register and the camera.
+   Returns 0 if the line's scroll is not the camera's (a parallax layer or a
+   status bar on a split screen), in which case it cannot be extended. */
+static int wide_world_left(uint16_t v, int *wl) {
+    /* modulo one screen: which nametable holds which screen varies (mirroring,
+       rooms entered vertically); the samples always come from the one shown */
+    int nt_x = ((v & 0x1F) << 3) | ppu_x;
+    int d = ((nt_x - wide_cam) % 256 + 256) % 256;
+    if (d >= 128) d -= 256;
+    *wl = wide_cam + d;
+    return d >= -24 && d <= 24;
 }
 
-static void wide_check(uint16_t v) {
-    wide_active = 0;
-    if (!wide_prov || !wide_prov->begin(&wide_cam)) return;
-    int wl = wide_world_left(v), nt_col0 = (((v & 0x1F) << 3 | ppu_x) + ((v >> 10) & 1) * 256) >> 3;
-    int match = 0, total = 0;
-    for (int ty = 2; ty < 28; ty += 3)
-        for (int k = 1; k < 32; k += 3) {
-            uint8_t t, p;
-            int col = (nt_col0 + k) & 63;
-            uint8_t nt = vram[nt_index((uint16_t)(0x2000 | ((col & 32) ? 0x400 : 0) | (ty << 5) | (col & 31)))];
-            total++;
-            if (wide_prov->tile((wl >> 3) + k, ty, &t, &p) && t == nt) match++;
-        }
-    wide_active = match * 100 >= total * 85;
+/* nametable row -> level row; -1 if it belongs to another screen */
+static int wide_level_row(int nt_row, int dy) {
+    int r = nt_row + dy;
+    if (nt_page[0] == nt_page[2]) return (r + 30) % 30;   /* one nametable tall: rows wrap */
+    return r >= 0 && r < 30 ? r : -1;
 }
 
 static void wide_line(int y, uint16_t v, uint8_t *bgpix) {
-    int ext = wide_ext;
+    int ext = wide_ext, wl = 0;
     uint8_t *L = wide_left[y], *R = wide_right[y];
-    if (frame_count != wide_checked_frame) { wide_checked_frame = frame_count; wide_check(v); }
-    if (!wide_active || !(ppu_mask & 0x08)) {
-        memset(L, 0x0F, ext); memset(R, 0x0F, ext);
-        return;
+    if (frame_count != wide_frame) {
+        wide_frame = frame_count;
+        wide_ns = 0;
+        wide_level = wide_prov && wide_prov->begin(&wide_cam);
     }
-    int wl = wide_world_left(v), ty = (v >> 5) & 31, fy = (v >> 12) & 7;
+    memset(L, 0x0F, ext); memset(R, 0x0F, ext);
+    if (!wide_level || !(ppu_mask & 0x08) || !wide_world_left(v, &wl)) return;
+    int nt_row = (v >> 5) & 31, fy = (v >> 12) & 7;
+    if (nt_row >= 30) return;
+    /* sample this tile row of the real picture, to check the provider at frame end */
+    if (fy == 3 && wide_ns + 11 <= WIDE_MAXS) {
+        int nt_col0 = (((v & 0x1F) << 3 | ppu_x) + ((v >> 10) & 1) * 256) >> 3;
+        for (int k = 1; k < 32; k += 3) {
+            int col = (nt_col0 + k) & 63;
+            ws_tx[wide_ns] = (int16_t)((wl >> 3) + k);
+            ws_row[wide_ns] = (uint8_t)nt_row;
+            ws_nt[wide_ns++] = vram[nt_index((uint16_t)(0x2000 | (v & 0x0800) | ((col & 32) ? 0x400 : 0) | (nt_row << 5) | (col & 31)))];
+        }
+    }
+    int ty = wide_level_row(nt_row, wide_dy);
+    if (ty < 0) return;
     uint16_t pt = (ppu_ctrl & 0x10) ? 0x1000 : 0;
-    /* ranges: left extension, the game's clipped left 8 pixels (if hidden), right extension */
-    int ranges[3][2] = {{-ext, 0}, {0, (ppu_mask & 0x02) ? 0 : 8}, {256, 256 + ext}};
+    /* ranges: left extension, the game's clipped left 8 pixels (if hidden and last frame
+       checked out), right extension */
+    int ranges[3][2] = {{-ext, 0}, {0, ((ppu_mask & 0x02) || !wide_prev_ok) ? 0 : 8}, {256, 256 + ext}};
     for (int r = 0; r < 3; r++) {
         int last_tx = 0x7FFFFFFF, ok = 0;
         uint8_t lo = 0, hi = 0, pn = 0;
@@ -241,6 +263,48 @@ static void wide_line(int y, uint16_t v, uint8_t *bgpix) {
             else if (r == 2) R[i - 256] = c;
         }
     }
+}
+
+/* End of the picture: compare the provider with what the game actually showed
+   (menus, transitions, cutscenes and anything else it does not know about fail),
+   and blank the extension unless at least 85% of the samples agree. Also finds
+   the vertical row offset for rooms that are not aligned to the nametable. */
+static void wide_end_frame(void) {
+    int best = 0, best_pct = -1;
+    if (wide_frame == frame_count && wide_level && wide_ns >= 33) {
+        for (int n = -1; n < 59; n++) {      /* last frame's offset first, then 0, 1, -1, 2, ... */
+            int dy = n < 0 ? wide_dy : ((n & 1) ? (n + 1) / 2 : -(n / 2));
+            if (n >= 0 && dy == wide_dy) continue;
+            int match = 0, total = 0;
+            for (int i = 0; i < wide_ns; i++) {
+                uint8_t t, p;
+                int r = wide_level_row(ws_row[i], dy);
+                total++;
+                if (r >= 0 && wide_prov->tile(ws_tx[i], r, &t, &p) && t == ws_nt[i]) match++;
+#ifdef WIDE_DEBUG
+                else if (frame_count == WIDE_DEBUG && n < 0) fprintf(stderr, "miss tx=%d row=%d nt=%02X prov=%02X\n", ws_tx[i], ws_row[i], ws_nt[i], r >= 0 ? t : 0);
+#endif
+            }
+            int pct = match * 100 / total;
+            if (pct > best_pct) { best_pct = pct; best = dy; }
+            if (pct >= 95) break;           /* the usual case: same offset as last frame */
+        }
+    }
+    int pass = best_pct >= 85;
+#ifdef WIDE_DEBUG
+    if (frame_count >= WIDE_DEBUG - 3 && frame_count <= WIDE_DEBUG) fprintf(stderr, "f=%u ns=%d dy=%d best=%d pct=%d\n", frame_count, wide_ns, wide_dy, best, best_pct);
+#endif
+#ifdef WIDE_FORCE
+    pass = 1; best = wide_dy;
+#endif
+    wide_last_pct = best_pct < 0 ? 0 : best_pct;
+    if (wide_level) { wide_stat_level++; wide_stat_active += pass; }
+    if (!pass || best != wide_dy) {
+        for (int y = 0; y < 240; y++) { memset(wide_left[y], 0x0F, wide_ext); memset(wide_right[y], 0x0F, wide_ext); }
+        if (pass) wide_dy = best;
+        wide_prev_ok = 0;
+    } else wide_prev_ok = 1;
+    wide_active = wide_prev_ok;
 }
 
 /* ---------------- HUD relocation (widescreen modes) ----------------
@@ -415,6 +479,7 @@ static void ppu_event(void) {
     if (ev_stage == 0) {
         if (ppu_line == 241) {
             ppu_status |= 0x80;
+            if (wide_ext) wide_end_frame();
             frame_count++;
             apu_sync();
             host_frame();

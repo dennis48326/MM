@@ -9,4 +9,5 @@ const int game_chr_size = 0;
 const int game_trainer = 0;
 const int game_vertical_mirror = 1;
 const int game_mapper = 2;
-const WideProvider *const game_wide_provider = 0;   /* no true widescreen yet */
+extern const WideProvider wide_mm1;
+const WideProvider *const game_wide_provider = &wide_mm1;

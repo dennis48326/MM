@@ -1,8 +1,12 @@
 /* Headless test host: CPU test ROMs, scripted game runs with per-frame
    hashes, screenshots (PPM) and code-coverage capture. */
 #include "nes.h"
+#include <stdio.h>
 #include "palette.h"
-extern const WideProvider wide_mm2;
+extern const WideProvider wide_mm1, wide_mm2, wide_mm3, wide_mm4, wide_mm5, wide_mm6;
+static const WideProvider *provs[7] = {0, &wide_mm1, &wide_mm2, &wide_mm3, &wide_mm4, &wide_mm5, &wide_mm6};
+extern uint32_t wide_stat_level, wide_stat_active;
+static int prov_no = 2; static FILE *wlog; extern int wide_last_pct;
 extern int hud_seen;
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,6 +69,7 @@ static void finish(void) {
     if (nmi_log) fclose(nmi_log);
     if (ppu_log) fclose(ppu_log);
     if (ram_log) fclose(ram_log);
+    if (wide_ext) fprintf(stderr, "wide level=%u active=%u\n", wide_stat_level, wide_stat_active);
     if (hud_move) fprintf(stderr, "hud_seen=%d\n", hud_seen);
     fprintf(stderr, "frames=%u interp_insns=%llu max_nest=%d jammed=%d\n", frame_count,
             (unsigned long long)stat_interp_insns, stat_max_nest, cpu_jammed);
@@ -81,6 +86,7 @@ void host_frame(void) {
         return;
     }
     uint32_t fr = frame_count;
+    if (wlog) fprintf(wlog, "%u %d\n", fr, wide_last_pct);
     if (ram_log) fwrite(ram, 1, sizeof ram, ram_log);
     if (hashlog) {
         uint64_t h = fnv(ram, sizeof ram, 1469598103934665603ULL);
@@ -156,7 +162,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "-a")) audio_out = fopen(argv[++i], "wb");
         else if (!strcmp(argv[i], "--extra")) opt_extra_lines = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--nolimit")) opt_no_sprite_limit = 1;
-        else if (!strcmp(argv[i], "--wide")) { wide_ext = atoi(argv[++i]); wide_prov = &wide_mm2; }
+        else if (!strcmp(argv[i], "--wide")) { wide_ext = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--wlog")) wlog = fopen(argv[++i], "w");
+        else if (!strcmp(argv[i], "--prov")) prov_no = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--hud")) hud_move = 1;
         else if (!strcmp(argv[i], "-w")) { ppu_log = fopen(argv[++i], "w"); ppu_write_hook = log_ppu; }
         else if (!strcmp(argv[i], "-r")) ram_log = fopen(argv[++i], "wb");
@@ -165,6 +173,7 @@ int main(int argc, char **argv) {
             unsigned a_, v_; sscanf(argv[++i], "%x=%x", &a_, &v_); poke_a[npokes] = (uint16_t)a_; poke_v[npokes++] = (uint8_t)v_;
         }
     }
+    if (wide_ext) wide_prov = provs[prov_no];
 #ifdef RECOMP
     g_exec = rc_exec;
 #endif

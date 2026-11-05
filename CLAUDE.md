@@ -19,12 +19,12 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
 `launcher/win32.c`. The test host takes a ROM path on the command line.
 
 ## Toolchain (cloud session)
-- Linux gcc for the test host: `gcc -O2 -w -o mmtest src/nes.c src/host_test.c src/wide_mm2.c`
-  and `gcc -O2 -w -Isrc -DRECOMP -o mmtest_rcN src/nes.c src/host_test.c src/wide_mm2.c games/mmN/rc_*.c`.
+- Linux gcc for the test host: `gcc -O2 -w -o mmtest src/nes.c src/host_test.c src/wide_mm*.c`
+  and `gcc -O2 -w -Isrc -DRECOMP -o mmtest_rcN src/nes.c src/host_test.c src/wide_mm*.c games/mmN/rc_*.c`.
 - Windows exes are cross-compiled with llvm-mingw (download the ubuntu x86_64 ucrt tarball from
   github.com/mstorsjo/llvm-mingw releases): `x86_64-w64-mingw32-gcc`, `x86_64-w64-mingw32-windres`.
   Game exe: `src/nes.c src/host_win32.c src/osd.c src/md5.c games/mmN/*.c appN.res.o -mwindows -lwinmm -static`
-  (MM2 also `src/wide_mm2.c`; `games/mmN/rom_data.c` names the game's widescreen provider or 0).
+  plus `src/wide_mmN.c` (`games/mmN/rom_data.c` names the game's widescreen provider).
   Launcher: `-Isrc launcher/win32.c launcher/core.c src/md5.c launcher.res.o -mwindows -lwinmm -static`.
 
 ## Verification (do this after any runtime or recompiler change)
@@ -38,13 +38,17 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
 3. Original mode must not change: interpreter hashes with boost off should match earlier runs.
 
 ## Widescreen (extended mode)
-- Generic part in `src/nes.c` (`wide_line`, `wide_check`): draws `wide_ext` extra columns per side into
+- Generic part in `src/nes.c` (`wide_line`, `wide_end_frame`): draws `wide_ext` extra columns per side into
   `wide_left/right` from a `WideProvider` (begin: camera from RAM; tile: world tile -> tile+palette, 0 = dark).
-  Per-frame self-check vs the nametable (85% threshold) keeps it dark on menus/transitions.
-- Providers: `src/wide_mm2.c` done (format notes in the file). MM1, MM3-6 still to do: find the game's
-  block/metatile builder and camera/room-limit RAM, write `wide_mmN.c`, pass it to `tools/embed.py`.
-- Test: `mmtest run ROM N -i script --wide 72 -s shot 100` (screenshots include the extra columns);
-  interp vs recompiled hashes must also match with `--wide`.
+  Lines whose scroll is not within 24 px of the camera stay dark. Tiles actually shown are sampled per line;
+  at frame end the provider must match 85% or the sides are blanked. Also searches a vertical row offset.
+- Providers: `src/wide_mm1.c` .. `wide_mm6.c` (format notes in each file), named in `rom_data.c` via `tools/embed.py`.
+- Test: `mmtest run ROM N -i script --wide 72 --prov N -s shot 100` (screenshots include the extra columns;
+  `--prov` picks the game's provider, default 2); `--wlog f` writes per-frame match %, stderr prints
+  `wide level=.. active=..`. Build with `-DWIDE_DEBUG=frame` to print mismatches, `-DWIDE_FORCE` to skip the check.
+  Interp vs recompiled hashes must also match with `--wide`.
+- Go-right test bot used for the providers: hold Right, jump and shoot; poke Mega Man's HP each frame
+  (MM1 `6A=1C`, MM2 `6C0=1C`, MM3 `A2=9C`, MM4/5 `B0=9C`, MM6 `3E5=1B`).
 - HUD relocation (`hud_move`, `hud_detect` in `nes.c`): energy-bar columns (7 sprites, Y 24..72) are drawn
   at new X in wide modes; player bars (X<=24) only when `wide_ext > 0`, boss bar (X 25..64) always.
   Test host: `--hud`; it prints `hud_seen` (bit0 player, bit1 boss). Boss-bar pokes for testing:
