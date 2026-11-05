@@ -45,6 +45,10 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
   block/metatile builder and camera/room-limit RAM, write `wide_mmN.c`, pass it to `tools/embed.py`.
 - Test: `mmtest run ROM N -i script --wide 72 -s shot 100` (screenshots include the extra columns);
   interp vs recompiled hashes must also match with `--wide`.
+- HUD relocation (`hud_move`, `hud_detect` in `nes.c`): energy-bar columns (7 sprites, Y 24..72) are drawn
+  at new X in wide modes; player bars (X<=24) only when `wide_ext > 0`, boss bar (X 25..64) always.
+  Test host: `--hud`; it prints `hud_seen` (bit0 player, bit1 boss). Boss-bar pokes for testing:
+  MM1 `3E=01`, MM2 `B1=01 6C1=14`, MM3 `B3=80`, MM4 `132=80`, MM5 `2F=80`, MM6 `642=01 3ED=10`.
 - Debug hooks in the test host: `-w ppu.txt` logs PPU register writes with PC, `-r ram.bin` dumps RAM per frame.
 
 ## Conventions

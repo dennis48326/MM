@@ -132,6 +132,13 @@ How extended mode works:
   the game itself has put on screen. If fewer than 85% match (pause or weapon
   menu, continue screen, vertical screen transitions, cutscenes) the extra
   area stays dark for that frame. It never shows the wrong thing.
+* **Energy bars:** in both FILL and EXT, the boss's energy bar moves to the
+  right edge of the picture, mirroring Mega Man's bar on the left. In EXT, Mega
+  Man's life and weapon bars also move out to the left edge of the wider
+  picture. The bars are recognised by their shape (columns of seven sprites at
+  the top left), so this works in all six games. Only where they are drawn
+  changes: the game still sees the same sprites, so gameplay, the sprite limit
+  and sprite-0 timing are unchanged.
 * **No effect when off:** with widescreen off the game runs exactly as before.
   Original and boost modes were re-checked frame for frame, and in extended
   mode the recompiled code and the reference interpreter still agree.

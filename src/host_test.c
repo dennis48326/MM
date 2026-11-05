@@ -3,6 +3,7 @@
 #include "nes.h"
 #include "palette.h"
 extern const WideProvider wide_mm2;
+extern int hud_seen;
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +65,7 @@ static void finish(void) {
     if (nmi_log) fclose(nmi_log);
     if (ppu_log) fclose(ppu_log);
     if (ram_log) fclose(ram_log);
+    if (hud_move) fprintf(stderr, "hud_seen=%d\n", hud_seen);
     fprintf(stderr, "frames=%u interp_insns=%llu max_nest=%d jammed=%d\n", frame_count,
             (unsigned long long)stat_interp_insns, stat_max_nest, cpu_jammed);
     exit(0);
@@ -155,6 +157,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--extra")) opt_extra_lines = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--nolimit")) opt_no_sprite_limit = 1;
         else if (!strcmp(argv[i], "--wide")) { wide_ext = atoi(argv[++i]); wide_prov = &wide_mm2; }
+        else if (!strcmp(argv[i], "--hud")) hud_move = 1;
         else if (!strcmp(argv[i], "-w")) { ppu_log = fopen(argv[++i], "w"); ppu_write_hook = log_ppu; }
         else if (!strcmp(argv[i], "-r")) ram_log = fopen(argv[++i], "wb");
         else if (!strcmp(argv[i], "-n")) { nmi_log = fopen(argv[++i], "wb"); nmi_hook = log_nmi; }

@@ -243,8 +243,50 @@ static void wide_line(int y, uint16_t v, uint8_t *bgpix) {
     }
 }
 
+/* ---------------- HUD relocation (widescreen modes) ----------------
+   Every Mega Man game draws its energy bars as columns of 7 sprites at
+   Y = 24, 32, ... 72, one palette per column: Mega Man's life at X=24, weapon
+   energy at X=16, and the boss's bar further right. When hud_move is on, those
+   columns are drawn at new places: Mega Man's bars at the same distance from
+   the left edge of the wider picture, the boss bar mirrored to the right edge.
+   Only the drawing moves; the game sees exactly the same sprites. */
+int hud_move;
+static uint8_t hud_class[64];          /* 0 none, 1 player bar, 2 boss bar */
+static uint32_t hud_frame = 0xFFFFFFFF;
+
+int hud_seen;                   /* debug: bit0 player bar, bit1 boss bar seen */
+static void hud_detect(void) {
+    memset(hud_class, 0, sizeof hud_class);
+    for (int x = 8; x <= 64; x++) {
+        int idx[7], n = 0, attr = -1, ok = 1;
+        for (int i = 0; i < 64 && ok; i++) {
+            if (oam[i * 4 + 3] != x) continue;
+            int sy = oam[i * 4];
+            if (sy < 0xEF && (sy < 24 || sy > 72 || (sy & 7))) { ok = 0; break; }   /* something else at this X */
+            if (sy >= 0xEF) continue;
+            if (attr < 0) attr = oam[i * 4 + 2];
+            if (oam[i * 4 + 2] != attr || n >= 7) { ok = 0; break; }
+            idx[n++] = i;
+        }
+        if (!ok || n != 7) continue;
+        int seen = 0;
+        for (int k = 0; k < 7; k++) seen |= 1 << ((oam[idx[k] * 4] - 24) >> 3);
+        if (seen != 0x7F) continue;                      /* need one sprite on each of the 7 rows */
+        int cls = (x <= 24) ? 1 : 2;
+        if (cls == 1 && wide_ext <= 0) continue;          /* stretch mode: Mega Man's bars already sit at the left */
+        hud_seen |= cls;
+        for (int k = 0; k < 7; k++) hud_class[idx[k]] = cls;
+    }
+}
+
+static int hud_new_x(int cls, int sx) {
+    if (cls == 1) return sx - wide_ext;                  /* keep its margin from the (new) left edge */
+    return 256 + wide_ext - 32;                          /* mirror the life bar's margin on the right */
+}
+
 static void render_line(int y) {
     uint8_t bgpix[256 + 16];
+    int hud_n = 0, hud_i[8];
     uint8_t *out = framebuffer[y];
     int show_bg = ppu_mask & 0x08, show_spr = ppu_mask & 0x10;
     memset(bgpix, 0, sizeof bgpix);
@@ -277,6 +319,21 @@ static void render_line(int y) {
             if (row < 0 || row >= h) continue;
             if (++found > 8) { ppu_status |= 0x20; if (!opt_no_sprite_limit) break; }
             uint8_t tile = oam[i * 4 + 1], at = oam[i * 4 + 2], sx = oam[i * 4 + 3];
+            if (hud_move) {
+                if (frame_count != hud_frame) { hud_frame = frame_count; hud_detect(); }
+                if (hud_class[i] && hud_n < 8) {
+                    if (i == 0) {           /* keep sprite-0 hit exactly as the game expects */
+                        int r0 = (at & 0x80) ? h - 1 - row : row;
+                        uint16_t pa0 = (uint16_t)(((ppu_ctrl & 0x08) ? 0x1000 : 0) + tile * 16 + r0);
+                        for (int px = 0; px < 8 && sx + px < 255; px++) {
+                            int bit = (at & 0x40) ? px : 7 - px;
+                            if ((((CHR(pa0) >> bit) | (CHR(pa0 + 8) >> bit)) & 1) && show_bg && bgpix[sx + px]) ppu_status |= 0x40;
+                        }
+                    }
+                    hud_i[hud_n++] = i;
+                    continue;
+                }
+            }
             if (at & 0x80) row = h - 1 - row;
             uint16_t pa;
             if (h == 16) pa = (uint16_t)(((tile & 1) ? 0x1000 : 0) + (tile & 0xFE) * 16 + (row >= 8 ? 16 : 0) + (row & 7));
@@ -303,6 +360,28 @@ static void render_line(int y) {
         else c = bgpix[x] ? pal[bgpix[x]] : pal[0];
         if (ppu_mask & 1) c &= 0x30;
         out[x] = c;
+    }
+    /* relocated HUD bars, drawn last (in front) into the wide picture */
+    for (int k = 0; k < hud_n; k++) {
+        int i = hud_i[k], h = (ppu_ctrl & 0x20) ? 16 : 8;
+        int row = y - oam[i * 4] - 1;
+        uint8_t tile = oam[i * 4 + 1], at = oam[i * 4 + 2];
+        if (at & 0x80) row = h - 1 - row;
+        uint16_t pa = (h == 16) ? (uint16_t)(((tile & 1) ? 0x1000 : 0) + (tile & 0xFE) * 16 + (row >= 8 ? 16 : 0) + (row & 7))
+                                : (uint16_t)(((ppu_ctrl & 0x08) ? 0x1000 : 0) + tile * 16 + row);
+        uint8_t lo = CHR(pa), hi = CHR(pa + 8);
+        int nx = hud_new_x(hud_class[i], oam[i * 4 + 3]);
+        for (int px = 0; px < 8; px++) {
+            int bit = (at & 0x40) ? px : 7 - px;
+            int c = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
+            if (!c) continue;
+            uint8_t col = pal[0x10 | ((at & 3) << 2) | c];
+            int x = nx + px;
+            if (x < -wide_ext || x >= 256 + wide_ext) continue;
+            if (x < 0) wide_left[y][x + wide_ext] = col;
+            else if (x >= 256) wide_right[y][x - 256] = col;
+            else out[x] = col;
+        }
     }
 }
 

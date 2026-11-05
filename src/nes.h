@@ -94,7 +94,8 @@ typedef struct {
 extern int wide_ext;                       /* extra pixels per side, 0 = off */
 extern uint8_t wide_left[240][WIDE_MAX], wide_right[240][WIDE_MAX];
 extern const WideProvider *wide_prov;
-extern int wide_active;  /* palette indices 0..63 (bit 6 = grayscale unused) */
+extern int wide_active;
+extern int hud_move;            /* widescreen modes: life/weapon bars to the left edge, boss bar to the right */  /* palette indices 0..63 (bit 6 = grayscale unused) */
 extern uint32_t frame_count;
 
 /* ---- input ---- */

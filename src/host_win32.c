@@ -218,6 +218,7 @@ static void update_wide(void) {
     }
     wide_prov = ext ? game_wide_provider : NULL;
     wide_ext = ext;
+    hud_move = wide_mode != 0;    /* widescreen modes: bars to the screen edges */
     img_w = SRC_W + 2 * ext;
     bmi.bmiHeader.biWidth = img_w;
 }
