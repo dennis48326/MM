@@ -85,7 +85,7 @@ enum { IT_G1, IT_G2, IT_G3, IT_G4, IT_G5, IT_G6, IT_MODE, IT_WIDE, IT_SCREEN, IT
 #define COLS 6
 #define NGAMES 6
 static const char *pname[NP] = {"MM1", "MM2", "MM3", "MM4", "MM5", "MM6",
-                                "MODE", "WIDE", "VIDEO", "MUSIC", "KEYS", "INFO"};
+                                "MODE", "WIDE", "VIDEO", "MUSIC", "KEYS", "INFO"};   /* MUSIC = in-game music: original or jukebox */
 static const char *gname[NGAMES] = {"MEGA MAN", "MEGA MAN 2", "MEGA MAN 3", "MEGA MAN 4", "MEGA MAN 5", "MEGA MAN 6"};
 static const uint32_t gcolor[NGAMES] = {0x0058f8, 0xe83820, 0xd89800, 0x00a0a0, 0x8040d8, 0x28a028};
 static int hover_close;
@@ -156,7 +156,7 @@ static void activate(int i) {
         else S->scale++;
         sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
     case IT_WIDE: S->wide = (S->wide + 1) % 3; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
-    case IT_MUSIC: S->music ^= 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
+    case IT_MUSIC: S->jukebox ^= 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
     case IT_KEYS: state = ST_KEYS; sfx(SFX_SELECT, 0); break;
     case IT_INFO: state = ST_INFO; sfx(SFX_SELECT, 0); break;
     case IT_EXIT: act_pending = ACT_QUIT; break;
@@ -173,6 +173,7 @@ void lc_event(int ev) {
         return;
     }
     if (state != ST_MENU) return;
+    if (ev == EV_MUSIC) { S->music ^= 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; return; }
     if (ev == EV_VOL_UP) { set_vol(S->volume + 1); return; }
     if (ev == EV_VOL_DOWN) { set_vol(S->volume - 1); return; }
     if (focus == BAR) {
@@ -416,6 +417,10 @@ static void draw_title(void) {
     } else if (state == ST_MENU && focus == IT_WIDE) {
         static const char *wt[3] = {"WIDESCREEN OFF: ORIGINAL 4:3", "WIDESCREEN: STRETCH TO FILL", "WIDESCREEN: EXTENDED LEVEL VIEW"};
         text_c(LW / 2, 34, wt[S->wide % 3], S->wide == 2 ? C_YELLOW : C_LIGHT, 1);
+    } else if (state == ST_MENU && focus == IT_MUSIC) {
+        text_c(LW / 2, 34, S->jukebox ? "JUKEBOX: F5/F6 PICK ANY MEGA MAN TRACK" : "MUSIC: EACH GAME'S OWN SOUNDTRACK",
+               S->jukebox ? C_YELLOW : C_LIGHT, 1);
+        text_c(LW / 2, 44, S->music ? "M: LAUNCHER MUSIC OFF" : "M: LAUNCHER MUSIC ON", C_LIGHT, 1);
     } else if (state == ST_MENU && focus == IT_MODE) {
         text_c(LW / 2, 34, S->boost ? "BOOST: NO SLOWDOWN, NO FLICKER" : "ORIGINAL: PLAYS LIKE THE NES",
                S->boost ? C_YELLOW : C_LIGHT, 1);
@@ -467,7 +472,7 @@ static void draw_panel(int i) {
     char buf[8];
     if (i == IT_SCREEN) { if (S->fullscreen) val = "FULL"; else { buf[0] = (char)('0' + S->scale); buf[1] = 'X'; buf[2] = 0; val = buf; } }
     if (i == IT_WIDE) val = S->wide == 0 ? "4:3" : S->wide == 1 ? "FILL" : "EXT";
-    if (i == IT_MUSIC) val = S->music ? "ON" : "OFF";
+    if (i == IT_MUSIC) val = S->jukebox ? "JUKE" : "ORIG";
     if (i == IT_MODE) val = S->boost ? "BOOST" : "ORIG";
     if (val) text_c(x + PW / 2 + 1, y + PH + 13, val, sel ? C_YELLOW : dim(C_YELLOW, 3, 4), 1);
 }
@@ -517,11 +522,12 @@ static void draw_keys_overlay(void) {
     static const char *rows[][2] = {
         {"MOVE", "ARROWS/WASD"}, {"JUMP", "X  OR  K"}, {"SHOOT", "Z  OR  J"},
         {"START", "ENTER"}, {"SELECT", "RSHIFT/TAB"}, {"PAUSE", "P"},
-        {"TURBO", "HOLD SPACE"}, {"RESET", "F2"}, {"BOOST", "F3"}, {"WIDE", "F4"}, {"FULL", "F11"}, {"BACK", "ESC"},
+        {"TURBO", "HOLD SPACE"}, {"RESET", "F2"}, {"BOOST", "F3"}, {"WIDE", "F4"},
+        {"TRACK", "F5/F6 +SHIFT"}, {"FULL", "F11"}, {"BACK", "ESC"},
     };
-    for (int i = 0; i < 12; i++) {
-        text(x + 14, y + 24 + i * 11, rows[i][0], C_CYAN, 1);
-        text(x + 86, y + 24 + i * 11, rows[i][1], C_WHITE, 1);
+    for (int i = 0; i < 13; i++) {
+        text(x + 14, y + 22 + i * 10, rows[i][0], C_CYAN, 1);
+        text(x + 86, y + 22 + i * 10, rows[i][1], C_WHITE, 1);
     }
     if ((frame_no / 20) & 1) text_c(LW / 2, y + h - 14, "XBOX PAD WORKS TOO", C_LIGHT, 1);
 }

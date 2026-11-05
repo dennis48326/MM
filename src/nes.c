@@ -17,6 +17,7 @@ int cpu_jammed;
 exec_fn g_exec = interp_run;
 uint64_t stat_interp_insns;
 uint8_t *cov_map;
+void (*exec_hook)(uint16_t pc);   /* debug: called before each interpreted instruction */
 int stat_max_nest;
 
 /* ---------------- memory ---------------- */
@@ -601,6 +602,8 @@ static void dmc_fetch(void) {
     }
 }
 
+uint8_t apu_gate = 0x1F;   /* APU channels heard: bit 0 pulse 1, 1 pulse 2, 2 triangle, 3 noise, 4 DMC */
+
 static inline void apu_cycle(void) {
     /* frame counter */
     fc_cycle++;
@@ -655,7 +658,15 @@ static inline void apu_cycle(void) {
     }
     t = tri_seq[tri.seq];
     if (noi.len && !(noi.lfsr & 1)) n = noi.constvol ? noi.vol : noi.env_decay;
-    double s = pulse_tbl[p1 + p2] + tnd_tbl[3 * t + 2 * n + dmc.level];
+    int dl = dmc.level;
+    if (apu_gate != 0x1F) {          /* jukebox: only the channels playing sound effects */
+        if (!(apu_gate & 1)) p1 = 0;
+        if (!(apu_gate & 2)) p2 = 0;
+        if (!(apu_gate & 4)) t = 0;
+        if (!(apu_gate & 8)) n = 0;
+        if (!(apu_gate & 16)) dl = 0;
+    }
+    double s = pulse_tbl[p1 + p2] + tnd_tbl[3 * t + 2 * n + dl];
     samp_sum += s; samp_n++;
     samp_acc += AUDIO_RATE;
     if (samp_acc >= CPU_HZ) {
@@ -814,7 +825,10 @@ void io_write(uint16_t a, uint8_t v) {
         if (pad_strobe) { pad_shift[0] = pad_state[0]; pad_shift[1] = pad_state[1]; }
         return;
     }
-    if (a < 0x4018) { apu_write(a, v); return; }
+    if (a < 0x4018) {
+        if (ppu_write_hook) ppu_write_hook(a, v, (uint16_t)prg_map[(PC >> 13) & 3]);   /* debug log: APU writes, bank of the writer */
+        apu_write(a, v); return;
+    }
     if (a >= 0x6000) wram[a - 0x6000] = v;
 }
 
@@ -857,6 +871,7 @@ int interp_step(void) {
     uint16_t ea;
     (void)ea;
     stat_interp_insns++;
+    if (exec_hook) exec_hook(PC);
     if (cov_map && PC >= 0x8000)
         { int sl = (PC >> 13) & 3; cov_map[(sl * prg_banks8 + prg_map[sl]) * 0x2000 + (PC & 0x1FFF)] = 1; }
     uint8_t op = rd(PC);

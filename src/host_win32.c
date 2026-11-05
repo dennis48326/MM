@@ -12,6 +12,7 @@
 #include "palette.h"
 #include "osd.h"
 #include "md5.h"
+#include "jukebox.h"
 #define OSD_WHITE 0xfcfcfc
 #define OSD_YELLOW 0xfcd880
 #define OSD_LIGHT 0xa4e4fc
@@ -34,6 +35,7 @@ extern const char game_md5_data[];
 static uint8_t *rom_buf;
 static const uint8_t *game_prg, *game_chr;
 static char rom_path[MAX_PATH];
+static long rom_size;
 
 static uint8_t *read_file(const char *path, size_t *n) {
     HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
@@ -58,6 +60,7 @@ static int try_rom(const char *path) {
     size_t need = 16 + (size_t)game_trainer + (size_t)game_prg_banks * 0x4000 + (size_t)game_chr_size;
     if (!ok || n < need) { free(b); return 0; }
     rom_buf = b;
+    rom_size = (long)n;
     game_prg = b + 16 + game_trainer;
     game_chr = game_prg + game_prg_banks * 0x4000;
     snprintf(rom_path, sizeof rom_path, "%s", path);
@@ -84,6 +87,67 @@ static int find_rom(const char *given) {
     } while (FindNextFileA(h, &fd));
     FindClose(h);
     return ok;
+}
+
+/* ---------------- jukebox (arranged music mod) ----------------
+   Every Mega Man ROM found next to the exe (or next to the game's ROM) can lend
+   its soundtrack. The choice is remembered in jukebox.ini. */
+static int juke_on;
+static char juke_ini[MAX_PATH];
+
+static void juke_scan_dir(const char *dir) {
+    char p[MAX_PATH];
+    WIN32_FIND_DATAA fd;
+    snprintf(p, sizeof p, "%s*.nes", dir);
+    HANDLE h = FindFirstFileA(p, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        snprintf(p, sizeof p, "%s%s", dir, fd.cFileName);
+        size_t n;
+        uint8_t *b = read_file(p, &n);
+        if (!b) continue;
+        int g = jukebox_identify(b, (long)n);
+        if (g < 0 || jukebox_add_rom(b, (long)n) != g) free(b);   /* kept while running if added */
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+}
+
+static void juke_init(void) {
+    char dir[MAX_PATH], rdir[MAX_PATH];
+    GetModuleFileNameA(NULL, dir, MAX_PATH);
+    char *sl = strrchr(dir, '\\');
+    if (sl) sl[1] = 0; else dir[0] = 0;
+    snprintf(juke_ini, sizeof juke_ini, "%sjukebox.ini", dir);
+    int host = jukebox_add_rom(rom_buf, rom_size);
+    jukebox_set_host(host);
+    juke_scan_dir(dir);
+    snprintf(rdir, sizeof rdir, "%s", rom_path);
+    sl = strrchr(rdir, '\\');
+    if (sl) { sl[1] = 0; if (_stricmp(rdir, dir)) juke_scan_dir(rdir); }
+    int g = GetPrivateProfileIntA("jukebox", "game", -1, juke_ini), id = GetPrivateProfileIntA("jukebox", "track", -1, juke_ini);
+    if (g >= 0 && id >= 0) jukebox_select(jukebox_find(g, id));
+}
+
+static void juke_show(void) {
+    char l1[48], l2[48];
+    jukebox_describe(jukebox_current(), l1, l2);
+    osd_show(l1, l2, jukebox_current() ? OSD_YELLOW : OSD_WHITE, 180);
+}
+
+static void juke_step(int dir, int by_game) {
+    if (!juke_on) { osd_show("JUKEBOX OFF", "TURN ON: LAUNCHER > MUSIC", OSD_LIGHT, 150); return; }
+    int n = jukebox_count(), i = jukebox_current();
+    if (n <= 1) { osd_show("JUKEBOX", "NO OTHER TRACKS FOUND", OSD_LIGHT, 150); return; }
+    if (by_game) i = jukebox_next_game(i, dir);
+    else i = (i + dir + n) % n;
+    jukebox_select(i);
+    int g = -1, id = -1;
+    jukebox_entry(i, &g, &id);
+    char b[16];
+    sprintf(b, "%d", g); WritePrivateProfileStringA("jukebox", "game", b, juke_ini);
+    sprintf(b, "%d", id); WritePrivateProfileStringA("jukebox", "track", b, juke_ini);
+    juke_show();
 }
 
 #define SRC_W 256
@@ -144,8 +208,15 @@ static void audio_submit(const int16_t *s, int n) {
 }
 
 static void audio_frame(void) {
-    int16_t s[BUFSAMP];
+    int16_t s[BUFSAMP], m[BUFSAMP];
     int n = audio_take(s, BUFSAMP);
+    if (juke_on) {                       /* add the jukebox track (its own NES core) */
+        int k = jukebox_take(m, BUFSAMP);
+        for (int i = 0; i < n; i++) {
+            int v = s[i] + (i < k ? m[i] : (k ? m[k - 1] : 0));
+            s[i] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+        }
+    }
     if (fast || paused) return;
     if (opt_volume < 100) for (int i = 0; i < n; i++) s[i] = (int16_t)(s[i] * opt_volume / 100);          /* drop audio while fast-forwarding */
     int q = audio_queued();
@@ -333,6 +404,8 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case VK_F2: want_reset = 1; osd_show("RESET", NULL, OSD_WHITE, 90); return 0;
         case VK_F3: set_boost(!opt_extra_lines); set_title(); osd_boost(); return 0;
         case VK_F4: set_wide_mode((wide_mode + 1) % 3); osd_wide(); return 0;
+        case VK_F5: juke_step(-1, GetKeyState(VK_SHIFT) < 0); return 0;
+        case VK_F6: juke_step(1, GetKeyState(VK_SHIFT) < 0); return 0;
         case VK_OEM_3: case VK_SPACE: fast = 1; set_title(); return 0;
         }
         break;
@@ -401,6 +474,7 @@ void host_frame(void) {
         want_reset = 0;
         longjmp(reset_jmp, 1);
     }
+    if (juke_on) { apu_gate = jukebox_apu_gate(); jukebox_frame(); }   /* game's APU: sound effects only */
     audio_frame();
     pad_state[0] = read_pad(0);
     pad_state[1] = read_pad(1);
@@ -420,7 +494,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
     wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(1));
     wc.lpszClassName = "NesNativeGame";
     RegisterClassA(&wc);
-    /* options from the launcher: --fullscreen --scale N --volume 0..100 --boost --launcher --rom path */
+    /* options from the launcher: --fullscreen --scale N --volume 0..100 --boost --wide 0|1|2 --jukebox --launcher --rom path */
     const char *rom_arg = NULL;
     for (int i = 1; i < __argc; i++) {
         const char *a = __argv[i];
@@ -431,6 +505,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
         else if (!strcmp(a, "--launcher")) from_launcher = 1;
         else if (!strcmp(a, "--wide") && i + 1 < __argc) wide_mode = atoi(__argv[++i]) % 3;
         else if (!strcmp(a, "--rom") && i + 1 < __argc) rom_arg = __argv[++i];
+        else if (!strcmp(a, "--jukebox")) juke_on = 1;
     }
     if (!find_rom(rom_arg)) {
         char m[600];
@@ -442,6 +517,13 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
         MessageBoxA(NULL, m, game_title, MB_ICONERROR | MB_OK);
         return 1;
     }
+    if (!from_launcher) {   /* started directly: use the launcher's setting if there is one */
+        char ini[MAX_PATH]; GetModuleFileNameA(NULL, ini, MAX_PATH);
+        char *sl = strrchr(ini, '\\'); if (sl) sl[1] = 0; else ini[0] = 0;
+        strncat(ini, "launcher.ini", MAX_PATH - strlen(ini) - 1);
+        if (GetPrivateProfileIntA("game", "jukebox", 0, ini)) juke_on = 1;
+    }
+    if (juke_on) juke_init();
     if (opt_volume < 0) opt_volume = 0;
     if (opt_volume > 100) opt_volume = 100;
     int scale = 3;

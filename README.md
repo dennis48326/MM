@@ -16,8 +16,11 @@ original chiptune loop and a beam-in animation when a game starts.
   (shown in yellow).
 * **MODE** switches between **BOOST** (no slowdown, no flicker) and **ORIG**
   (plays exactly like the NES). See "Boost mode" below.
-* **WIDE** cycles 4:3, FILL (stretch) and EXT (extended level view). **VIDEO** cycles window 2x, 3x, 4x and fullscreen. **MUSIC** turns
-  the launcher music on or off.
+* **WIDE** cycles 4:3, FILL (stretch) and EXT (extended level view). **VIDEO**
+  cycles window 2x, 3x, 4x and fullscreen.
+* **MUSIC** switches the in-game music between **ORIG** (each game's own
+  soundtrack) and **JUKE**, the jukebox mod (see "Jukebox" below). Press **M**
+  to turn the launcher's own music on or off.
 * **VOL**: the energy bar on the left sets the volume for the launcher and the
   games. Move left onto it and press up or down, use the mouse wheel, press
   + or -, or click the bar.
@@ -155,6 +158,33 @@ How extended mode works:
 
 The launcher passes `--wide 0|1|2`.
 
+## Jukebox
+
+With **MUSIC: JUKE** in the launcher, any game can play any track from any
+Mega Man ROM found next to the exes. Press **F6** / **F5** to step forward /
+back through one playlist of every soundtrack (143 tracks with all six
+ROMs), or hold **Shift** to jump to the next / previous game. The first entry,
+**GAME MUSIC**, is the game's own soundtrack. A banner shows the game, the
+track number and its name (stage themes, stage select, stage start and title
+are named; the rest are numbered). The choice is kept in `jukebox.ini` and
+carries over to the other games.
+
+How it works:
+
+* **A second NES inside each exe** (`src/music_core.c`) runs only the sound
+  driver of the ROM the track comes from, like an NSF player: map the driver's
+  bank, call its "play sound" entry with the track number once, then its
+  update routine every frame. Mega Man 1 and 2 share one Capcom driver, Mega
+  Man 3-6 another; the track list is read from each driver's own table in the
+  ROM (music vs. sound effect is a flag in each entry), with duplicates, silent
+  entries and stings under five seconds left out.
+* **Sound effects stay**: the game keeps running its own driver, and only the
+  APU channels its driver has handed to a sound effect are heard (the drivers
+  keep that as a bit mask in RAM). Music on those channels is muted.
+* **No effect on the game**: the game's RAM and picture are exactly the same
+  with the jukebox on (checked frame for frame in all six games), and with it
+  off nothing changes at all.
+
 ## Controls
 
 | NES        | Keyboard               | Xbox pad     |
@@ -167,6 +197,7 @@ The launcher passes `--wide 0|1|2`.
 
 * **P** pause · **Space** or **`** (hold) fast-forward · **F2** reset
 * **F3** boost on/off · **F4** widescreen 4:3 / fill / extended · **F11** or **Alt+Enter** fullscreen or windowed
+* **F5 / F6** previous / next jukebox track, **Shift+F5 / Shift+F6** previous / next game's tracks (jukebox on)
 * **Esc**: if the game was started from the launcher, returns to the launcher.
   If it was started directly, it leaves fullscreen first and then quits.
 

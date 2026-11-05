@@ -3,6 +3,8 @@
 #include "nes.h"
 #include <stdio.h>
 #include "palette.h"
+#include "jukebox.h"
+#include <math.h>
 extern const WideProvider wide_mm1, wide_mm2, wide_mm3, wide_mm4, wide_mm5, wide_mm6;
 static const WideProvider *provs[7] = {0, &wide_mm1, &wide_mm2, &wide_mm3, &wide_mm4, &wide_mm5, &wide_mm6};
 extern uint32_t wide_stat_level, wide_stat_active;
@@ -29,6 +31,11 @@ static FILE *audio_out;
 static FILE *nmi_log, *ppu_log, *ram_log;
 static void log_ppu(uint16_t reg, uint8_t v, uint16_t va) { fprintf(ppu_log, "%u %04X %04X %02X %04X\n", frame_count, PC, reg, v, va); }
 static void log_nmi(uint16_t pc) { if (nmi_log) fwrite(&pc, 2, 1, nmi_log); }
+extern void (*exec_hook)(uint16_t pc);
+static int snd_bank = -1, snd_req; static FILE *snd_log;
+static void log_snd(uint16_t pc) { if (pc == snd_req && prg_map[(pc >> 13) & 3] == snd_bank) fprintf(snd_log, "%u %02X\n", frame_count, A); }
+static int juke_nomix;
+static uint8_t *juke_rom; static long juke_size; static int juke_id = -1;
 static int npokes; static uint16_t poke_a[16]; static uint8_t poke_v[16];
 
 static void load(const char *p) {
@@ -65,6 +72,8 @@ static void finish(void) {
         fclose(f);
     }
     if (hashlog) fclose(hashlog);
+    if (snd_log) fclose(snd_log);
+    if (wlog) fclose(wlog);
     if (audio_out) fclose(audio_out);
     if (nmi_log) fclose(nmi_log);
     if (ppu_log) fclose(ppu_log);
@@ -96,10 +105,16 @@ void host_frame(void) {
     if (shot_prefix && shot_every && fr % shot_every == 0) {
         char p[512]; snprintf(p, sizeof p, "%s%06u.ppm", shot_prefix, fr); shot(p);
     }
+    if (juke_id >= 0) { apu_gate = jukebox_apu_gate(); jukebox_frame(); }
     if (audio_out) {
-        int16_t buf[4096]; int n = audio_take(buf, 4096);
+        int16_t buf[4096], mb[4096]; int n = audio_take(buf, 4096);
+        if (juke_id >= 0) {
+            int m = jukebox_take(mb, 4096);
+            if (juke_nomix) m = 0;
+            for (int k = 0; k < n; k++) { int v = buf[k] + (k < m ? mb[k] : 0); buf[k] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
+        }
         fwrite(buf, 2, n, audio_out);
-    } else { int16_t buf[4096]; audio_take(buf, 4096); }
+    } else { int16_t buf[4096]; audio_take(buf, 4096); if (juke_id >= 0) jukebox_take(buf, 4096); }
     uint8_t m = 0;
     for (int i = 0; i < ninputs; i++)
         if (fr >= inputs[i].start && fr < inputs[i].start + inputs[i].dur) m |= inputs[i].mask;
@@ -139,6 +154,36 @@ int main(int argc, char **argv) {
         printf("result %02X %02X\n", ram[2], ram[3]);
         return 0;
     }
+    if (!strcmp(argv[1], "musicscan")) {
+        /* render every jukebox track of this ROM for N seconds; print loudness per 2 s */
+        int secs = argc > 3 ? atoi(argv[3]) : 40;
+        int g = jukebox_add_rom(rom, romsz);
+        if (g < 0) { printf("unknown ROM\n"); return 1; }
+        for (int i = 1; i < jukebox_count(); i++) {
+            int gg, id; jukebox_entry(i, &gg, &id);
+            jukebox_select(i);
+            printf("%02X", id);
+            double acc = 0; long cnt = 0; int16_t buf[4096];
+            for (int f = 0; f < secs * 60; f++) {
+                jukebox_frame();
+                int n = jukebox_take(buf, 4096);
+                for (int k = 0; k < n; k++) { acc += (double)buf[k] * buf[k]; cnt++; }
+                if (f % 120 == 119) { printf(" %d", cnt ? (int)sqrt(acc / cnt) : 0); acc = 0; cnt = 0; }
+            }
+            printf("\n");
+        }
+        return 0;
+    }
+    if (!strcmp(argv[1], "music")) {
+        /* music ROM id seconds out.raw : render one jukebox track */
+        int g = jukebox_add_rom(rom, romsz), id = (int)strtol(argv[3], 0, 16), secs = atoi(argv[4]);
+        FILE *o = fopen(argv[5], "wb");
+        jukebox_select(jukebox_find(g, id));
+        int16_t buf[4096];
+        for (int f = 0; f < secs * 60; f++) { jukebox_frame(); int n = jukebox_take(buf, 4096); fwrite(buf, 2, n, o); }
+        fclose(o);
+        return 0;
+    }
     if (!strcmp(argv[1], "blargg")) {
         mode = 1;
 #ifdef RECOMP
@@ -163,6 +208,18 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--extra")) opt_extra_lines = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--nolimit")) opt_no_sprite_limit = 1;
         else if (!strcmp(argv[i], "--wide")) { wide_ext = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--sndlog")) { unsigned b_, r_; sscanf(argv[++i], "%x:%x", &b_, &r_); snd_bank = (int)b_; snd_req = (int)r_; snd_log = fopen(argv[++i], "w"); exec_hook = log_snd; }
+        else if (!strcmp(argv[i], "--jukenomix")) juke_nomix = 1;
+        else if (!strcmp(argv[i], "--juke")) {   /* --juke other.nes trackid(hex): jukebox mod */
+            FILE *jf = fopen(argv[++i], "rb"); fseek(jf, 0, SEEK_END); juke_size = ftell(jf); fseek(jf, 0, SEEK_SET);
+            juke_rom = malloc(juke_size); fread(juke_rom, 1, juke_size, jf); fclose(jf);
+            juke_id = (int)strtol(argv[++i], 0, 16);
+            jukebox_add_rom(rom, romsz);
+            jukebox_add_rom(juke_rom, juke_size);
+            int jg = jukebox_identify(juke_rom, juke_size);
+            jukebox_set_host(jukebox_identify(rom, romsz));
+            jukebox_select(jukebox_find(jg, juke_id));
+        }
         else if (!strcmp(argv[i], "--wlog")) wlog = fopen(argv[++i], "w");
         else if (!strcmp(argv[i], "--prov")) prov_no = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--hud")) hud_move = 1;

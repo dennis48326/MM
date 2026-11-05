@@ -104,6 +104,7 @@ extern uint8_t pad_state[2];  /* bit0 A,1 B,2 Select,3 Start,4 Up,5 Down,6 Left,
 /* ---- audio ---- */
 #define AUDIO_RATE 44100
 int audio_take(int16_t *dst, int max);  /* drains generated samples */
+extern uint8_t apu_gate;                /* channels heard (bit 0 pulse 1 .. bit 4 DMC); jukebox mutes the game's music */
 
 /* ---- host callbacks ---- */
 void host_frame(void);   /* called once per frame at start of vblank */

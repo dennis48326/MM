@@ -4,7 +4,7 @@
 CC      ?= gcc
 WINDRES ?= windres
 CFLAGS  ?= -O2 -w
-RT = src/nes.c src/host_win32.c src/osd.c src/md5.c
+RT = src/nes.c src/host_win32.c src/osd.c src/md5.c src/jukebox.c src/music_core.c
 # each game uses its own widescreen level provider (named in games/mmN/rom_data.c)
 
 all: MegaMan.exe MegaMan2.exe MegaMan3.exe MegaMan4.exe MegaMan5.exe MegaMan6.exe Launcher.exe
@@ -47,4 +47,4 @@ regen:
 	python tools/embed.py ../mega6.nes games/mm6/rom_data.c "Mega Man 6 - native" wide_mm6
 
 mmtest:
-	$(CC) $(CFLAGS) -o mmtest src/nes.c src/host_test.c src/wide_mm*.c
+	$(CC) $(CFLAGS) -Isrc -o mmtest src/nes.c src/host_test.c src/wide_mm*.c src/jukebox.c src/music_core.c src/md5.c -lm

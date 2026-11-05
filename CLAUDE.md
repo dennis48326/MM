@@ -19,11 +19,12 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
 `launcher/win32.c`. The test host takes a ROM path on the command line.
 
 ## Toolchain (cloud session)
-- Linux gcc for the test host: `gcc -O2 -w -o mmtest src/nes.c src/host_test.c src/wide_mm*.c`
-  and `gcc -O2 -w -Isrc -DRECOMP -o mmtest_rcN src/nes.c src/host_test.c src/wide_mm*.c games/mmN/rc_*.c`.
+- Linux gcc for the test host (JB = `src/jukebox.c src/music_core.c src/md5.c -lm`):
+  `gcc -O2 -w -Isrc -o mmtest src/nes.c src/host_test.c src/wide_mm*.c $JB`
+  and `gcc -O2 -w -Isrc -DRECOMP -o mmtest_rcN src/nes.c src/host_test.c src/wide_mm*.c $JB games/mmN/rc_*.c`.
 - Windows exes are cross-compiled with llvm-mingw (download the ubuntu x86_64 ucrt tarball from
   github.com/mstorsjo/llvm-mingw releases): `x86_64-w64-mingw32-gcc`, `x86_64-w64-mingw32-windres`.
-  Game exe: `src/nes.c src/host_win32.c src/osd.c src/md5.c games/mmN/*.c appN.res.o -mwindows -lwinmm -static`
+  Game exe: `src/nes.c src/host_win32.c src/osd.c src/md5.c src/jukebox.c src/music_core.c games/mmN/*.c appN.res.o -mwindows -lwinmm -static`
   plus `src/wide_mmN.c` (`games/mmN/rom_data.c` names the game's widescreen provider).
   Launcher: `-Isrc launcher/win32.c launcher/core.c src/md5.c launcher.res.o -mwindows -lwinmm -static`.
 
@@ -55,7 +56,21 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
   MM1 `3E=01`, MM2 `B1=01 6C1=14`, MM3 `B3=80`, MM4 `132=80`, MM5 `2F=80`, MM6 `642=01 3ED=10`.
 - Debug hooks in the test host: `-w ppu.txt` logs PPU register writes with PC, `-r ram.bin` dumps RAM per frame.
 
+## Jukebox (arranged music mod)
+- `src/music_core.c` includes `nes.c` a second time with every global renamed (`src/music_rename.h`,
+  regenerate with `python tools/gen_music_rename.py` after adding a global to nes.c). It runs only a
+  sound driver: `music_core_call(addr, A)` runs a subroutine to RTS; `music_core_frame_time()` advances
+  one frame so its APU makes samples.
+- `src/jukebox.c`: ROM MD5 table, driver table (MM1/2: play $9000/$8000, request +3, pointer table;
+  MM3-6: play $8000, request $8003, count $8A40, big-endian pointers $8A43), track names, playlist.
+  `jukebox_skip.h` is generated from `mmtest musicscan ROM 40` (silent / under ~5 s).
+- Game music is muted with `apu_gate` (nes.c mixer): only SFX channels pass, from the driver's mask
+  (`$EF` MM1/2, `$CF` MM3-6; bit 0 pulse 1 .. bit 3 noise). DMC muted.
+- Test host: `mmtest music ROM id(hex) secs out.raw`, `mmtest musicscan ROM secs`,
+  `run ... --juke other.nes id(hex) [--jukenomix] -a out.raw`, `--sndlog bank:addr file` logs
+  driver requests (e.g. `16:8003` for MM3), `-w` also logs APU writes with the writer's bank.
+
 ## Conventions
 - Boost = 4000 extra CPU-only scanlines after line 240 (APU frozen) + no 8-sprite limit.
-- Game exes take `--fullscreen --scale N --volume 0-100 --boost --wide 0|1|2 --launcher --rom path`.
+- Game exes take `--fullscreen --scale N --volume 0-100 --boost --wide 0|1|2 --jukebox --launcher --rom path`.
 - Keep the repo private (generated code is ROM-derived). Never commit .nes files.
