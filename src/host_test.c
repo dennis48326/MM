@@ -36,6 +36,7 @@ static int snd_bank = -1, snd_req; static FILE *snd_log;
 static void log_snd(uint16_t pc) { if (pc == snd_req && prg_map[(pc >> 13) & 3] == snd_bank) fprintf(snd_log, "%u %02X\n", frame_count, A); }
 static int juke_nomix;
 static uint8_t *juke_rom; static long juke_size; static int juke_id = -1;
+static FILE *hudlog;
 static int npokes; static uint16_t poke_a[16]; static uint8_t poke_v[16];
 
 static void load(const char *p) {
@@ -95,6 +96,7 @@ void host_frame(void) {
         return;
     }
     uint32_t fr = frame_count;
+    if (hudlog) { fprintf(hudlog, "%u %d\n", fr, hud_seen); hud_seen = 0; }
     if (wlog) fprintf(wlog, "%u %d\n", fr, wide_last_pct);
     if (ram_log) fwrite(ram, 1, sizeof ram, ram_log);
     if (hashlog) {
@@ -223,6 +225,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--wlog")) wlog = fopen(argv[++i], "w");
         else if (!strcmp(argv[i], "--prov")) prov_no = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--hud")) hud_move = 1;
+        else if (!strcmp(argv[i], "--hudlog")) { hud_move = 1; hudlog = fopen(argv[++i], "w"); }
         else if (!strcmp(argv[i], "-w")) { ppu_log = fopen(argv[++i], "w"); ppu_write_hook = log_ppu; }
         else if (!strcmp(argv[i], "-r")) ram_log = fopen(argv[++i], "wb");
         else if (!strcmp(argv[i], "-n")) { nmi_log = fopen(argv[++i], "wb"); nmi_hook = log_nmi; }

@@ -320,28 +320,71 @@ static uint8_t hud_class[64];          /* 0 none, 1 player bar, 2 boss bar */
 static uint32_t hud_frame = 0xFFFFFFFF;
 
 int hud_seen;                   /* debug: bit0 player bar, bit1 boss bar seen */
+/* An energy bar is a column of sprites with the same attributes on the 8-pixel
+   rows from Y 24 to 72. Full, it is 7 sprites. Mega Man 4 (and others) leave out
+   the empty segments, so with little energy only the bottom rows are there: a
+   column whose sprites fill the rows from some row down to Y 72 is taken as the
+   bar if a bar was seen at that X with the same attributes in the last two
+   seconds (refreshed every frame it is seen, so it follows the bar all the way
+   down). Other sprites sharing the column (Mega Man, bullets) are ignored. A
+   miss used to draw the bar at its original place for that frame (a flash). */
+static uint32_t hud_full_frame[65];
+static int hud_full_attr[65];
 static void hud_detect(void) {
     memset(hud_class, 0, sizeof hud_class);
     for (int x = 8; x <= 64; x++) {
-        int idx[7], n = 0, attr = -1, ok = 1;
-        for (int i = 0; i < 64 && ok; i++) {
-            if (oam[i * 4 + 3] != x) continue;
+        int best_rows = 0, best_spr[7], best_attr = -1;
+        for (int i = 0; i < 64; i++) {
             int sy = oam[i * 4];
-            if (sy < 0xEF && (sy < 24 || sy > 72 || (sy & 7))) { ok = 0; break; }   /* something else at this X */
-            if (sy >= 0xEF) continue;
-            if (attr < 0) attr = oam[i * 4 + 2];
-            if (oam[i * 4 + 2] != attr || n >= 7) { ok = 0; break; }
-            idx[n++] = i;
+            if (oam[i * 4 + 3] != x || sy < 24 || sy > 72 || (sy & 7)) continue;
+            int attr = oam[i * 4 + 2], rows = 0, nrow[7] = {0}, pick[7];
+            for (int r = 0; r < 7; r++) pick[r] = -1;
+            /* sprites of this attribute on the bar rows; a row may also hold another
+               sprite (Mega Man, an enemy): keep the one whose tile looks most like the
+               other rows' tiles (bar pieces are neighbouring tile numbers) */
+            int ref = -1;
+            for (int j = 0; j < 64; j++) {
+                int jy = oam[j * 4];
+                if (oam[j * 4 + 3] != x || oam[j * 4 + 2] != attr || jy < 24 || jy > 72 || (jy & 7)) continue;
+                nrow[(jy - 24) >> 3]++;
+            }
+            for (int j = 0; j < 64 && ref < 0; j++) {
+                int jy = oam[j * 4];
+                if (oam[j * 4 + 3] == x && oam[j * 4 + 2] == attr && jy >= 24 && jy <= 72 && !(jy & 7) && nrow[(jy - 24) >> 3] == 1)
+                    ref = oam[j * 4 + 1];
+            }
+            for (int j = 0; j < 64; j++) {
+                int jy = oam[j * 4];
+                if (oam[j * 4 + 3] != x || oam[j * 4 + 2] != attr || jy < 24 || jy > 72 || (jy & 7)) continue;
+                int r = (jy - 24) >> 3, t = oam[j * 4 + 1];
+                if (pick[r] < 0) { pick[r] = j; rows++; }
+                else if (ref >= 0 && abs(t - ref) < abs(oam[pick[r] * 4 + 1] - ref)) pick[r] = j;
+            }
+            if (ref < 0) continue;                       /* every row doubled up: not a bar */
+            if (rows > best_rows) { best_rows = rows; best_attr = attr; memcpy(best_spr, pick, sizeof pick); }
         }
-        if (!ok || n != 7) continue;
-        int seen = 0;
-        for (int k = 0; k < 7; k++) seen |= 1 << ((oam[idx[k] * 4] - 24) >> 3);
-        if (seen != 0x7F) continue;                      /* need one sprite on each of the 7 rows */
+        if (best_rows < 7) {
+            /* partial: must be the bottom rows, without gaps, of a bar seen recently */
+            int top = 7 - best_rows, ok = best_rows > 0;
+            for (int r = 0; r < 7 && ok; r++) if ((best_spr[r] >= 0) != (r >= top)) ok = 0;
+            if (!ok || hud_full_attr[x] != best_attr || hud_full_frame[x] == 0 ||
+                frame_count - hud_full_frame[x] > 120) continue;
+        }
+        hud_full_frame[x] = frame_count; hud_full_attr[x] = best_attr;
         int cls = (x <= 24) ? 1 : 2;
         if (cls == 1 && wide_ext <= 0) continue;          /* stretch mode: Mega Man's bars already sit at the left */
         hud_seen |= cls;
-        for (int k = 0; k < 7; k++) hud_class[idx[k]] = cls;
+        for (int r = 0; r < 7; r++) if (best_spr[r] >= 0) hud_class[best_spr[r]] = cls;
     }
+#ifdef HUD_DEBUG
+    int any = 0, got = 0;
+    for (int i = 0; i < 64; i++) { if (hud_class[i] == 1) got = 1; if (oam[i*4+3] >= 16 && oam[i*4+3] <= 24 && oam[i*4] >= 24 && oam[i*4] <= 72) any = 1; }
+    if (any && !got) {
+        fprintf(stderr, "F%u:", frame_count);
+        for (int i = 0; i < 64; i++) if (oam[i*4+3] >= 8 && oam[i*4+3] <= 32) fprintf(stderr, " [%d x%d y%d t%02X a%02X]", i, oam[i*4+3], oam[i*4], oam[i*4+1], oam[i*4+2]);
+        fprintf(stderr, "\n");
+    }
+#endif
 }
 
 static int hud_new_x(int cls, int sx) {
