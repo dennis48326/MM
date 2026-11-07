@@ -50,6 +50,11 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
   `--prov` picks the game's provider, default 2); `--wlog f` writes per-frame match %, stderr prints
   `wide level=.. active=..`. Build with `-DWIDE_DEBUG=frame` to print mismatches, `-DWIDE_FORCE` to skip the check.
   Interp vs recompiled hashes must also match with `--wide`.
+- Objects in the extension: optional provider callback `objects()` returns sprites (x relative to the
+  256-px picture) drawn only outside 0..255 (`wide_sprites_line`); MM2 only so far (`wide_mm2.c`: spawned
+  slots in full + unspawned whitelisted types from the stage's object lists). Test host: `--noobj`,
+  `--ghostall` (show every unspawned object), `-P file` per-frame pokes ("frame addr val", e.g. to walk Mega
+  Man through a stage by poking his x), `--vdump file frame` (CHR 8 KB + palette + RAM, for galleries).
 - Go-right test bot used for the providers: hold Right, jump and shoot; poke Mega Man's HP each frame
   (MM1 `6A=1C`, MM2 `6C0=1C`, MM3 `A2=9C`, MM4/5 `B0=9C`, MM6 `3E5=1B`).
 - HUD relocation (`hud_move`, `hud_detect` in `nes.c`): energy-bar columns (Y 24..72; full = 7 sprites, low energy

@@ -39,6 +39,7 @@
 #define opt_extra_lines mc_opt_extra_lines
 #define opt_no_sprite_limit mc_opt_no_sprite_limit
 #define pad_state mc_pad_state
+#define ppu_peek mc_ppu_peek
 #define ppu_write_hook mc_ppu_write_hook
 #define prg mc_prg
 #define prg_banks mc_prg_banks
@@ -51,8 +52,10 @@
 #define stat_max_nest mc_stat_max_nest
 #define wide_active mc_wide_active
 #define wide_ext mc_wide_ext
+#define wide_ghost_all mc_wide_ghost_all
 #define wide_last_pct mc_wide_last_pct
 #define wide_left mc_wide_left
+#define wide_objects mc_wide_objects
 #define wide_prov mc_wide_prov
 #define wide_right mc_wide_right
 #define wide_stat_active mc_wide_stat_active

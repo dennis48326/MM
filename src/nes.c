@@ -165,6 +165,7 @@ static uint8_t ppu_mem_read(uint16_t a) {
     if (a < 0x3F00) return vram[nt_index(a)];
     return pal[pal_idx(a)];
 }
+uint8_t ppu_peek(uint16_t a) { return ppu_mem_read(a); }   /* debug: PPU memory */
 static void ppu_mem_write(uint16_t a, uint8_t v) {
     a &= 0x3FFF;
     if (a < 0x2000) { if (!chr_pages) CHR(a) = v; }
@@ -197,6 +198,12 @@ static int16_t ws_tx[WIDE_MAXS]; static uint8_t ws_row[WIDE_MAXS], ws_nt[WIDE_MA
 /* World x of the line's left edge, from the scroll register and the camera.
    Returns 0 if the line's scroll is not the camera's (a parallax layer or a
    status bar on a split screen), in which case it cannot be extended. */
+int wide_objects = 1;
+int wide_ghost_all;
+static WideSprite wide_spr[WIDE_MAXSPR];
+static int wide_nspr;
+static uint8_t wide_lop[WIDE_MAX], wide_rop[WIDE_MAX];   /* this line: extension background opaque */
+
 static int wide_world_left(uint16_t v, int *wl) {
     /* modulo one screen: which nametable holds which screen varies (mirroring,
        rooms entered vertically); the samples always come from the one shown */
@@ -214,18 +221,20 @@ static int wide_level_row(int nt_row, int dy) {
     return r >= 0 && r < 30 ? r : -1;
 }
 
-static void wide_line(int y, uint16_t v, uint8_t *bgpix) {
+static int wide_line(int y, uint16_t v, uint8_t *bgpix) {
     int ext = wide_ext, wl = 0;
     uint8_t *L = wide_left[y], *R = wide_right[y];
     if (frame_count != wide_frame) {
         wide_frame = frame_count;
         wide_ns = 0;
         wide_level = wide_prov && wide_prov->begin(&wide_cam);
+        wide_nspr = (wide_level && wide_objects && wide_prov->objects) ? wide_prov->objects(wide_spr, WIDE_MAXSPR) : 0;
     }
     memset(L, 0x0F, ext); memset(R, 0x0F, ext);
-    if (!wide_level || !(ppu_mask & 0x08) || !wide_world_left(v, &wl)) return;
+    memset(wide_lop, 0, ext); memset(wide_rop, 0, ext);
+    if (!wide_level || !(ppu_mask & 0x08) || !wide_world_left(v, &wl)) return 0;
     int nt_row = (v >> 5) & 31, fy = (v >> 12) & 7;
-    if (nt_row >= 30) return;
+    if (nt_row >= 30) return 0;
     /* sample this tile row of the real picture, to check the provider at frame end */
     if (fy == 3 && wide_ns + 11 <= WIDE_MAXS) {
         int nt_col0 = (((v & 0x1F) << 3 | ppu_x) + ((v >> 10) & 1) * 256) >> 3;
@@ -237,7 +246,7 @@ static void wide_line(int y, uint16_t v, uint8_t *bgpix) {
         }
     }
     int ty = wide_level_row(nt_row, wide_dy);
-    if (ty < 0) return;
+    if (ty < 0) return 0;
     uint16_t pt = (ppu_ctrl & 0x10) ? 0x1000 : 0;
     /* ranges: left extension, the game's clipped left 8 pixels (if hidden and last frame
        checked out), right extension */
@@ -253,15 +262,52 @@ static void wide_line(int y, uint16_t v, uint8_t *bgpix) {
                 ok = wide_prov->tile(tx, ty, &t, &p);
                 if (ok) { lo = CHR(pt + t * 16 + fy); hi = CHR(pt + t * 16 + fy + 8); pn = p; }
             }
-            uint8_t c = 0x0F;
+            uint8_t c = 0x0F, opq = 0;
             if (ok) {
                 int b = 7 - (wx & 7);
                 int ci = ((lo >> b) & 1) | (((hi >> b) & 1) << 1);
                 c = ci ? pal[(pn << 2) | ci] : pal[0];
+                opq = ci != 0;
                 if (r == 1) bgpix[i] = ci ? (uint8_t)(ci | (pn << 2)) : 0;
             }
-            if (r == 0) L[i + ext] = c;
-            else if (r == 2) R[i - 256] = c;
+            if (r == 0) { L[i + ext] = c; wide_lop[i + ext] = opq; }
+            else if (r == 2) { R[i - 256] = c; wide_rop[i - 256] = opq; }
+        }
+    }
+    return 1;
+}
+
+/* Provider sprites on line y, into the extension only (the game's own 256 pixels
+   are never touched). Front sprites first; the background-priority bit is honoured. */
+static void wide_sprites_line(int y) {
+    int ext = wide_ext, h = (ppu_ctrl & 0x20) ? 16 : 8;
+    if (!wide_nspr || !(ppu_mask & 0x10)) return;
+    uint8_t done_l[WIDE_MAX], done_r[WIDE_MAX];
+    memset(done_l, 0, ext); memset(done_r, 0, ext);
+    for (int i = 0; i < wide_nspr; i++) {
+        const WideSprite *s = &wide_spr[i];
+        int row = y - s->y - 1;
+        if (row < 0 || row >= h) continue;
+        if (s->x >= 256 + ext || s->x + 8 <= -ext || (s->x >= 0 && s->x + 8 <= 256)) continue;
+        uint8_t tile = s->tile, at = s->attr;
+        if (at & 0x80) row = h - 1 - row;
+        uint16_t pa = (h == 16) ? (uint16_t)(((tile & 1) ? 0x1000 : 0) + (tile & 0xFE) * 16 + (row >= 8 ? 16 : 0) + (row & 7))
+                                : (uint16_t)(((ppu_ctrl & 0x08) ? 0x1000 : 0) + tile * 16 + row);
+        uint8_t lo = CHR(pa), hi = CHR(pa + 8);
+        for (int px = 0; px < 8; px++) {
+            int x = s->x + px;
+            if (x >= 0 && x < 256) continue;
+            if (x < -ext || x >= 256 + ext) continue;
+            int bit = (at & 0x40) ? px : 7 - px;
+            int c = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1);
+            if (!c) continue;
+            uint8_t *done = x < 0 ? &done_l[x + ext] : &done_r[x - 256];
+            if (*done) continue;
+            *done = 1;
+            int opaque = x < 0 ? wide_lop[x + ext] : wide_rop[x - 256];
+            if ((at & 0x20) && opaque) continue;
+            uint8_t col = pal[0x10 | ((at & 3) << 2) | c];
+            if (x < 0) wide_left[y][x + ext] = col; else wide_right[y][x - 256] = col;
         }
     }
 }
@@ -461,7 +507,7 @@ static void render_line(int y) {
             }
         }
     }
-    if (wide_ext) wide_line(y, ppu_v, bgpix);   /* also fills the clipped left 8 pixels */
+    if (wide_ext && wide_line(y, ppu_v, bgpix)) wide_sprites_line(y);   /* also fills the clipped left 8 pixels */
     for (int x = 0; x < 256; x++) {
         uint8_t c;
         if (sp[x] && (!(spattr[x] & 0x20) || !bgpix[x])) c = pal[sp[x]];

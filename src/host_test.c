@@ -31,6 +31,7 @@ static struct { uint32_t start, dur; uint8_t mask; } inputs[4096];
 static int ninputs;
 static FILE *audio_out;
 static FILE *nmi_log, *ppu_log, *ram_log;
+static FILE *vram_log; static uint32_t vram_frame;   /* --vdump file frame: CHR 8 KB + palette 32 + ram 2 KB */
 static void log_ppu(uint16_t reg, uint8_t v, uint16_t va) { fprintf(ppu_log, "%u %04X %04X %02X %04X\n", frame_count, PC, reg, v, va); }
 static void log_nmi(uint16_t pc) { if (nmi_log) fwrite(&pc, 2, 1, nmi_log); }
 extern void (*exec_hook)(uint16_t pc);
@@ -40,6 +41,7 @@ static int juke_nomix;
 static uint8_t *juke_rom; static long juke_size; static int juke_id = -1;
 static FILE *hudlog;
 static int npokes; static uint16_t poke_a[16]; static uint8_t poke_v[16];
+static FILE *pokef; static unsigned pf_frame = 0xFFFFFFFF, pf_a, pf_v;   /* -P file: "frame addr val" lines (hex addr/val), sorted */
 
 static void load(const char *p) {
     FILE *f = fopen(p, "rb");
@@ -101,6 +103,11 @@ void host_frame(void) {
     if (hudlog) { fprintf(hudlog, "%u %d\n", fr, hud_seen); hud_seen = 0; }
     if (wlog) fprintf(wlog, "%u %d\n", fr, wide_last_pct);
     if (ram_log) fwrite(ram, 1, sizeof ram, ram_log);
+    if (vram_log && fr == vram_frame) {
+        for (int a = 0; a < 0x2000; a++) fputc(ppu_peek((uint16_t)a), vram_log);
+        for (int a = 0; a < 32; a++) fputc(ppu_peek((uint16_t)(0x3F00 + a)), vram_log);
+        fwrite(ram, 1, sizeof ram, vram_log); fclose(vram_log); vram_log = 0;
+    }
     if (hashlog) {
         uint64_t h = fnv(ram, sizeof ram, 1469598103934665603ULL);
         uint64_t h2 = fnv(&framebuffer[0][0], sizeof framebuffer, 1469598103934665603ULL);
@@ -124,6 +131,12 @@ void host_frame(void) {
         if (fr >= inputs[i].start && fr < inputs[i].start + inputs[i].dur) m |= inputs[i].mask;
     pad_state[0] = m;
     for (int i = 0; i < npokes; i++) ram[poke_a[i] & 0x7FF] = poke_v[i];
+    while (pokef) {
+        if (pf_frame == 0xFFFFFFFF && fscanf(pokef, "%u %x %x", &pf_frame, &pf_a, &pf_v) != 3) { fclose(pokef); pokef = 0; break; }
+        if (pf_frame > frame_count) break;
+        if (pf_frame == frame_count) ram[pf_a & 0x7FF] = (uint8_t)pf_v;
+        pf_frame = 0xFFFFFFFF;
+    }
     if (fr >= max_frames) finish();
 }
 
@@ -246,7 +259,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--hudlog")) { hud_move = 1; hudlog = fopen(argv[++i], "w"); }
         else if (!strcmp(argv[i], "-w")) { ppu_log = fopen(argv[++i], "w"); ppu_write_hook = log_ppu; }
         else if (!strcmp(argv[i], "-r")) ram_log = fopen(argv[++i], "wb");
+        else if (!strcmp(argv[i], "--vdump")) { vram_log = fopen(argv[++i], "wb"); vram_frame = (uint32_t)atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--ghostall")) wide_ghost_all = 1;
+        else if (!strcmp(argv[i], "--noobj")) wide_objects = 0;
         else if (!strcmp(argv[i], "-n")) { nmi_log = fopen(argv[++i], "wb"); nmi_hook = log_nmi; }
+        else if (!strcmp(argv[i], "-P")) pokef = fopen(argv[++i], "r");
         else if (!strcmp(argv[i], "-p") && npokes < 16) {
             unsigned a_, v_; sscanf(argv[++i], "%x=%x", &a_, &v_); poke_a[npokes] = (uint16_t)a_; poke_v[npokes++] = (uint8_t)v_;
         }

@@ -85,12 +85,22 @@ void nes_reset_cpu(void);
 
 /* ---- PPU ---- */
 extern uint8_t framebuffer[240][256];
+uint8_t ppu_peek(uint16_t a);              /* debug: read PPU memory (CHR, nametables, palette) */
 /* widescreen: extra columns on each side, drawn from a per-game level provider */
 #define WIDE_MAX 160
+/* a sprite for the extra columns: x from the left edge of the 256-pixel picture
+   (negative = left extension), y as in OAM (top line - 1) */
+typedef struct { int16_t x, y; uint8_t tile, attr; } WideSprite;
+#define WIDE_MAXSPR 256
 typedef struct {
     int (*begin)(int *cam_world_x);                              /* per frame; 0 = not in a level */
     int (*tile)(int world_tx, int nt_row, uint8_t *tile, uint8_t *palno);  /* 0 = outside room: dark */
+    /* optional, per frame: sprites for the extra columns, front first (objects the game
+       has spawned that stick out past the edge, and harmless ones not spawned yet) */
+    int (*objects)(WideSprite *out, int max);
 } WideProvider;
+extern int wide_objects;                   /* draw provider objects in the extension (default on) */
+extern int wide_ghost_all;                 /* test: show every unspawned object, enemies too */
 extern int wide_ext;                       /* extra pixels per side, 0 = off */
 extern uint8_t wide_left[240][WIDE_MAX], wide_right[240][WIDE_MAX];
 extern const WideProvider *wide_prov;
