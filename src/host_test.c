@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include "palette.h"
 #include "jukebox.h"
+#include "filters.h"
+#include <time.h>
 #include <math.h>
 extern const WideProvider wide_mm1, wide_mm2, wide_mm3, wide_mm4, wide_mm5, wide_mm6;
 static const WideProvider *provs[7] = {0, &wide_mm1, &wide_mm2, &wide_mm3, &wide_mm4, &wide_mm5, &wide_mm6};
@@ -154,6 +156,22 @@ int main(int argc, char **argv) {
             interp_step();
         }
         printf("result %02X %02X\n", ram[2], ram[3]);
+        return 0;
+    }
+    if (!strcmp(argv[1], "filter")) {
+        /* filter ROM in.ppm mode(0-2) dw dh out.ppm : run an upscaling filter on a screenshot */
+        FILE *f = fopen(argv[3], "rb"); int w, h, mx; fscanf(f, "P6 %d %d %d", &w, &h, &mx); fgetc(f);
+        uint32_t *src = malloc((size_t)w * h * 4);
+        for (int i = 0; i < w * h; i++) { int r = fgetc(f), g = fgetc(f), b = fgetc(f); src[i] = (uint32_t)(r << 16 | g << 8 | b); }
+        fclose(f);
+        int mode = atoi(argv[4]), dw = atoi(argv[5]), dh = atoi(argv[6]);
+        uint32_t *dst = malloc((size_t)dw * dh * 4);
+        clock_t t0 = clock();
+        for (int k = 0; k < 10; k++) filter_render(mode, src, w, h, dst, dw, dh);
+        printf("%.2f ms per frame (1 thread)\n", (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / 10);
+        FILE *o = fopen(argv[7], "wb"); fprintf(o, "P6 %d %d 255\n", dw, dh);
+        for (int i = 0; i < dw * dh; i++) { fputc(dst[i] >> 16, o); fputc((dst[i] >> 8) & 255, o); fputc(dst[i] & 255, o); }
+        fclose(o);
         return 0;
     }
     if (!strcmp(argv[1], "musicscan")) {

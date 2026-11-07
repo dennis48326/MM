@@ -24,12 +24,14 @@ original chiptune loop and a beam-in animation when a game starts.
 * **VOL**: the energy bar on the left sets the volume for the launcher and the
   games. Move left onto it and press up or down, use the mouse wheel, press
   + or -, or click the bar.
-* **KEYS** shows the game controls, and **INFO** shows build details.
+* **LOOK** picks the picture filter: **OFF**, **CRT** (old-school television)
+  or **XBRZ** (smoothed pixel art). See "Filters" below.
+* **INFO** shows build details; press right on it to see the game controls.
 * To quit, use the small X at the top right or press Esc.
 * Settings are saved in `launcher.ini` next to the exe.
 
 Each game can also be run directly with `--fullscreen`, `--scale N`,
-`--volume 0-100`, `--boost`, `--wide 0|1|2` and `--rom path`. The launcher also passes `--launcher`, which
+`--volume 0-100`, `--boost`, `--wide 0|1|2`, `--filter 0|1|2`, `--jukebox` and `--rom path`. The launcher also passes `--launcher`, which
 makes Esc return to it.
 
 ## ROM detection
@@ -185,6 +187,29 @@ How it works:
   with the jukebox on (checked frame for frame in all six games), and with it
   off nothing changes at all.
 
+## Filters
+
+Press **F7** in a game, or use the launcher's **LOOK** panel, to cycle the
+upscaling filter: OFF (sharp pixels, integer scaling when it fits), CRT and
+XBRZ. Filters change only how the picture is drawn to the window; the game
+itself is untouched. They work with every widescreen mode.
+
+* **CRT** imitates a consumer tube television: each scanline is drawn as a
+  glowing beam that gets wider when it is bright (so dark lines between rows
+  close up in bright areas), neighbouring pixels blend a little like a
+  composite signal, bright areas bleed a soft halo, an aperture-grille mask
+  gives the fine red/green/blue stripes, and the glass is gently curved with
+  rounded corners and darker edges. It is computed in linear light, like a
+  real tube, and drawn straight at the window's size.
+* **XBRZ** is Zenju's xBRZ pixel-art scaler (the version used by PPSSPP),
+  which rounds off diagonal edges and curves while keeping flat areas crisp.
+  The picture is scaled 2x-6x to cover the window and then smoothly resized
+  to fit exactly.
+
+Both filters run on all CPU cores. At very large sizes (above 1600 pixels
+tall) the CRT filter renders at half size and lets the window scaling do the
+rest.
+
 ## Controls
 
 | NES        | Keyboard               | Xbox pad     |
@@ -197,6 +222,7 @@ How it works:
 
 * **P** pause · **Space** or **`** (hold) fast-forward · **F2** reset
 * **F3** boost on/off · **F4** widescreen 4:3 / fill / extended · **F11** or **Alt+Enter** fullscreen or windowed
+* **F7** picture filter off / CRT / xBRZ
 * **F5 / F6** previous / next jukebox track, **Shift+F5 / Shift+F6** previous / next game's tracks (jukebox on)
 * **Esc**: if the game was started from the launcher, returns to the launcher.
   If it was started directly, it leaves fullscreen first and then quits.
@@ -300,7 +326,8 @@ matched the interpreter exactly, with zero fallback instructions.
 ```
 src/            runtime: nes.c (CPU interpreter, PPU, APU, mappers), host_win32.c (window, sound, input,
                 ROM loading), osd.c (on-screen banner), md5.c, wide_*.c (widescreen level providers),
-                host_test.c (headless test host)
+                filters.c (CRT and xBRZ filters), xbrz_glue.cpp, host_test.c (headless test host)
+third_party/    xbrz/ (Zenju's xBRZ scaler, GPLv3; see its README)
 games/mm1..mm6/ generated per game: recompiled C (rc_*.c), ROM identity (rom_data.c), disasm/ listings
 launcher/       launcher: core.c (art, menu, synth), win32.c (window, input, audio, ROM scan), font
 tools/          m6502.py (opcode semantics), recomp.py, gen_interp.py, embed.py, mkinput*.py
@@ -315,7 +342,8 @@ repository should stay **private**: the generated code and listings in
 ## Rebuilding
 
 To rebuild on Windows with MinGW-w64 (gcc and windres on PATH), run `build.bat`
-in the repository root. It builds both exes. With make, run `make -f Makefile.mk`.
+in the repository root. It builds all the exes; the xBRZ scaler is C++, so
+`g++` must be on PATH too and the games are linked with it. With make, run `make -f Makefile.mk`.
 
 To regenerate the C code from the ROM, run `make -f Makefile.mk regen`. This needs Python 3 and
 looks for `mega.nes` through `mega6.nes` one folder above the repository.

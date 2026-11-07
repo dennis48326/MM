@@ -79,13 +79,13 @@ static struct { float x, y, v; uint32_t c; } stars[NSTARS];
 /* panels */
 /* grid items, 4 columns x 2 rows; the volume bar is focus index BAR */
 /* grid: six cartridges on top, six settings below; volume bar = BAR, close box = IT_EXIT */
-enum { IT_G1, IT_G2, IT_G3, IT_G4, IT_G5, IT_G6, IT_MODE, IT_WIDE, IT_SCREEN, IT_MUSIC, IT_KEYS, IT_INFO, NP };
+enum { IT_G1, IT_G2, IT_G3, IT_G4, IT_G5, IT_G6, IT_MODE, IT_WIDE, IT_SCREEN, IT_MUSIC, IT_FILTER, IT_INFO, NP };   /* controls list: from INFO (RIGHT) */
 #define BAR NP
 #define IT_EXIT (NP + 1)
 #define COLS 6
 #define NGAMES 6
 static const char *pname[NP] = {"MM1", "MM2", "MM3", "MM4", "MM5", "MM6",
-                                "MODE", "WIDE", "VIDEO", "MUSIC", "KEYS", "INFO"};   /* MUSIC = in-game music: original or jukebox */
+                                "MODE", "WIDE", "VIDEO", "MUSIC", "LOOK", "INFO"};   /* LOOK = upscaling filter */   /* MUSIC = in-game music: original or jukebox */
 static const char *gname[NGAMES] = {"MEGA MAN", "MEGA MAN 2", "MEGA MAN 3", "MEGA MAN 4", "MEGA MAN 5", "MEGA MAN 6"};
 static const uint32_t gcolor[NGAMES] = {0x0058f8, 0xe83820, 0xd89800, 0x00a0a0, 0x8040d8, 0x28a028};
 static int hover_close;
@@ -157,7 +157,7 @@ static void activate(int i) {
         sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
     case IT_WIDE: S->wide = (S->wide + 1) % 3; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
     case IT_MUSIC: S->jukebox ^= 1; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
-    case IT_KEYS: state = ST_KEYS; sfx(SFX_SELECT, 0); break;
+    case IT_FILTER: S->filter = (S->filter + 1) % 3; sfx(SFX_TOGGLE, 0); act_pending = ACT_SAVE; break;
     case IT_INFO: state = ST_INFO; sfx(SFX_SELECT, 0); break;
     case IT_EXIT: act_pending = ACT_QUIT; break;
     }
@@ -168,8 +168,10 @@ static void move_focus(int nf) {
 }
 
 void lc_event(int ev) {
-    if (state == ST_KEYS || state == ST_INFO) {
+    if (state == ST_KEYS || state == ST_INFO) {   /* INFO and CONTROLS are two pages: LEFT / RIGHT */
         if (ev == EV_OK || ev == EV_BACK) { state = ST_MENU; sfx(SFX_BACK, 0); }
+        else if (ev == EV_RIGHT && state == ST_INFO) { state = ST_KEYS; sfx(SFX_CURSOR, 0); }
+        else if (ev == EV_LEFT && state == ST_KEYS) { state = ST_INFO; sfx(SFX_CURSOR, 0); }
         return;
     }
     if (state != ST_MENU) return;
@@ -304,12 +306,16 @@ static void icon_music(int x, int y, int on) {
     rect(x + 14, y + 14, 6, 4, b); rect(x + 15, y + 13, 4, 6, b);
     if (!S->music) for (int i = 0; i < 20; i++) { px(x + 2 + i, y + 2 + i, C_RED); px(x + 3 + i, y + 2 + i, C_RED); }
 }
-static void icon_keys(int x, int y, int on) {
-    uint32_t a = on ? C_LIGHT : C_GRAY, b = on ? C_WHITE : C_LIGHT, r = on ? C_RED : dim(C_RED, 1, 2);
-    rect(x + 2, y + 7, 20, 12, a); rect(x + 1, y + 9, 22, 8, a); rect(x + 3, y + 6, 18, 14, a);
-    rect(x + 4, y + 11, 6, 2, C_PANEL); rect(x + 6, y + 9, 2, 6, C_PANEL);
-    rect(x + 15, y + 12, 3, 3, r); rect(x + 19, y + 10, 3, 3, r);
-    rect(x + 11, y + 15, 2, 1, b); rect(x + 13, y + 15, 2, 1, b);
+static void icon_filter(int x, int y, int on) {    /* a little TV set */
+    uint32_t body = on ? 0x8c6c4c : 0x5c4834, scr = on ? C_CYAN : C_BLUE, edge = on ? C_WHITE : C_LIGHT;
+    rect(x + 1, y + 5, 22, 16, body);
+    rect(x + 3, y + 7, 14, 12, C_BLACK);
+    rect(x + 4, y + 8, 12, 10, scr);
+    for (int i = 0; i < 5; i++) rect(x + 4, y + 9 + i * 2, 12, 1, dim(scr, 1, 2));
+    rect(x + 19, y + 8, 2, 2, edge); rect(x + 19, y + 12, 2, 2, edge);
+    px(x + 8, y + 2, edge); px(x + 9, y + 3, edge); px(x + 10, y + 4, edge);
+    px(x + 15, y + 2, edge); px(x + 14, y + 3, edge); px(x + 13, y + 4, edge);
+    rect(x + 3, y + 21, 3, 2, body); rect(x + 18, y + 21, 3, 2, body);
 }
 static void icon_cart(int x, int y, int on, int which) {
     int have = HAVE(which);
@@ -417,6 +423,10 @@ static void draw_title(void) {
     } else if (state == ST_MENU && focus == IT_WIDE) {
         static const char *wt[3] = {"WIDESCREEN OFF: ORIGINAL 4:3", "WIDESCREEN: STRETCH TO FILL", "WIDESCREEN: EXTENDED LEVEL VIEW"};
         text_c(LW / 2, 34, wt[S->wide % 3], S->wide == 2 ? C_YELLOW : C_LIGHT, 1);
+    } else if (state == ST_MENU && focus == IT_FILTER) {
+        text_c(LW / 2, 34, S->filter == 1 ? "CRT: SCANLINES, GLOW AND A CURVED TUBE" : S->filter == 2 ? "XBRZ: SMOOTH, SHARP PIXEL ART" : "FILTER: SHARP PIXELS, NO FILTER",
+               S->filter ? C_YELLOW : C_LIGHT, 1);
+        text_c(LW / 2, 44, "F7 SWITCHES IN GAME", C_LIGHT, 1);
     } else if (state == ST_MENU && focus == IT_MUSIC) {
         text_c(LW / 2, 34, S->jukebox ? "JUKEBOX: F5/F6 PICK ANY MEGA MAN TRACK" : "MUSIC: EACH GAME'S OWN SOUNDTRACK",
                S->jukebox ? C_YELLOW : C_LIGHT, 1);
@@ -460,7 +470,7 @@ static void draw_panel(int i) {
     case IT_SCREEN: icon_screen(ix, iy, sel); break;
     case IT_WIDE: icon_wide(ix, iy, sel); break;
     case IT_MUSIC: icon_music(ix, iy, sel); break;
-    case IT_KEYS: icon_keys(ix, iy, sel); break;
+    case IT_FILTER: icon_filter(ix, iy, sel); break;
     case IT_INFO: icon_info(ix, iy, sel); break;
     }
     uint32_t lc = sel ? C_WHITE : C_LIGHT;
@@ -473,6 +483,7 @@ static void draw_panel(int i) {
     if (i == IT_SCREEN) { if (S->fullscreen) val = "FULL"; else { buf[0] = (char)('0' + S->scale); buf[1] = 'X'; buf[2] = 0; val = buf; } }
     if (i == IT_WIDE) val = S->wide == 0 ? "4:3" : S->wide == 1 ? "FILL" : "EXT";
     if (i == IT_MUSIC) val = S->jukebox ? "JUKE" : "ORIG";
+    if (i == IT_FILTER) val = S->filter == 2 ? "XBRZ" : S->filter == 1 ? "CRT" : "OFF";
     if (i == IT_MODE) val = S->boost ? "BOOST" : "ORIG";
     if (val) text_c(x + PW / 2 + 1, y + PH + 13, val, sel ? C_YELLOW : dim(C_YELLOW, 3, 4), 1);
 }
@@ -513,7 +524,7 @@ static void draw_footer(void) {
 
 static void draw_keys_overlay(void) {
     darken(3);
-    int w = 220, h = 172, x = (LW - w) / 2, y = 14;
+    int w = 220, h = 188, x = (LW - w) / 2, y = 6;
     rect(x + 4, y + 4, w, h, C_BLACK);
     rect(x, y, w, h, C_PANEL);
     frame(x, y, w, h, 2, C_WHITE);
@@ -523,13 +534,14 @@ static void draw_keys_overlay(void) {
         {"MOVE", "ARROWS/WASD"}, {"JUMP", "X  OR  K"}, {"SHOOT", "Z  OR  J"},
         {"START", "ENTER"}, {"SELECT", "RSHIFT/TAB"}, {"PAUSE", "P"},
         {"TURBO", "HOLD SPACE"}, {"RESET", "F2"}, {"BOOST", "F3"}, {"WIDE", "F4"},
-        {"TRACK", "F5/F6 +SHIFT"}, {"FULL", "F11"}, {"BACK", "ESC"},
+        {"TRACK", "F5/F6 +SHIFT"}, {"FILTER", "F7"}, {"FULL", "F11"}, {"BACK", "ESC"},
     };
-    for (int i = 0; i < 13; i++) {
+    for (int i = 0; i < 14; i++) {
         text(x + 14, y + 22 + i * 10, rows[i][0], C_CYAN, 1);
         text(x + 86, y + 22 + i * 10, rows[i][1], C_WHITE, 1);
     }
-    if ((frame_no / 20) & 1) text_c(LW / 2, y + h - 14, "XBOX PAD WORKS TOO", C_LIGHT, 1);
+    if ((frame_no / 20) & 1) text(x + w - 10 - tw("XBOX PAD TOO", 1), y + h - 14, "XBOX PAD TOO", C_LIGHT, 1);
+    text(x + 10, y + h - 14, "< INFO", C_LIGHT, 1);
 }
 
 const char *lc_info_lines[8];  /* unused now; kept for compatibility */
@@ -548,7 +560,7 @@ static const char *info_lines[10] = {
 
 static void draw_info_overlay(void) {
     darken(3);
-    int w = 280, h = 158, x = (LW - w) / 2, y = 24;
+    int w = 280, h = 176, x = (LW - w) / 2, y = 14;
     rect(x + 4, y + 4, w, h, C_BLACK);
     rect(x, y, w, h, C_PANEL);
     frame(x, y, w, h, 2, C_WHITE);
@@ -558,6 +570,7 @@ static void draw_info_overlay(void) {
         text(x + 14, y + 26 + i * 12 + (i >= 6 ? 6 : 0), info_lines[i], i < 6 ? C_WHITE : i < 8 ? C_CYAN : C_YELLOW, 1);
     for (int i = 0; i < 6; i++)   /* ROM detection status, by MD5 */
         text(x + 14 + 23 * 8, y + 26 + i * 12, HAVE(i) ? "ROM OK" : "NO ROM", HAVE(i) ? 0x58d858 : C_RED, 1);
+    text(x + w - 10 - tw("CONTROLS >", 1), y + h - 14, "CONTROLS >", C_LIGHT, 1);
 }
 
 static void draw_tele(void) {

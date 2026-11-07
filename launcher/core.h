@@ -18,6 +18,7 @@ typedef struct {
     int boost;       /* 1 = no slowdown / no flicker, 0 = original */
     int wide;        /* 0 = 4:3, 1 = stretch, 2 = extended (true widescreen) */
     int jukebox;     /* 1 = in-game music can be any track from any detected game (F5/F6) */
+    int filter;      /* 0 = off, 1 = CRT, 2 = xBRZ */
 } LSettings;
 
 enum { EV_LEFT, EV_RIGHT, EV_UP, EV_DOWN, EV_OK, EV_BACK, EV_VOL_UP, EV_VOL_DOWN, EV_MUSIC };

@@ -13,6 +13,7 @@
 #include "osd.h"
 #include "md5.h"
 #include "jukebox.h"
+#include "filters.h"
 #define OSD_WHITE 0xfcfcfc
 #define OSD_YELLOW 0xfcd880
 #define OSD_LIGHT 0xa4e4fc
@@ -294,6 +295,67 @@ static void update_wide(void) {
     bmi.bmiHeader.biWidth = img_w;
 }
 
+/* ---------------- upscaling filters (CRT, xBRZ) ----------------
+   A small thread pool runs the filter's row jobs; the picture is rendered at the
+   window's size and copied 1:1 (CRT at very large sizes renders at half size). */
+static int filter_mode;
+static uint32_t *filt_buf;
+static size_t filt_cap;
+static BITMAPINFO bmf;
+#define POOL_MAX 16
+static int pool_n;
+static HANDLE pool_go, pool_done;
+static volatile LONG pool_next = 0x40000000, pool_left;
+static filter_job_fn pool_fn;
+static void *pool_ctx;
+static int pool_jobs;
+
+static void pool_work(void) {
+    for (;;) {
+        LONG j = InterlockedIncrement(&pool_next) - 1;
+        if (j >= pool_jobs) break;
+        pool_fn(pool_ctx, (int)j);
+        if (InterlockedDecrement(&pool_left) == 0) SetEvent(pool_done);
+    }
+}
+static DWORD WINAPI pool_thread(LPVOID p) {
+    (void)p;
+    for (;;) { WaitForSingleObject(pool_go, INFINITE); pool_work(); }
+    return 0;
+}
+#define POOL_IDLE 0x40000000                     /* pool_next between batches: late wakers find no job */
+static void pool_run(filter_job_fn fn, void *ctx, int n) {
+    if (n <= 0) return;
+    pool_fn = fn; pool_ctx = ctx; pool_jobs = n;
+    pool_left = n;
+    ResetEvent(pool_done);
+    InterlockedExchange(&pool_next, 0);          /* publish the batch (full barrier) */
+    ReleaseSemaphore(pool_go, pool_n, NULL);
+    pool_work();                                 /* this thread helps too */
+    WaitForSingleObject(pool_done, INFINITE);
+    InterlockedExchange(&pool_next, POOL_IDLE);
+}
+static void pool_init(void) {
+    SYSTEM_INFO si; GetSystemInfo(&si);
+    pool_n = (int)si.dwNumberOfProcessors - 1;
+    if (pool_n > POOL_MAX) pool_n = POOL_MAX;
+    if (pool_n < 1) return;                      /* single core: filters run on this thread */
+    pool_go = CreateSemaphoreA(NULL, 0, POOL_MAX * 64, NULL);
+    pool_done = CreateEventA(NULL, TRUE, FALSE, NULL);
+    for (int i = 0; i < pool_n; i++) {
+        HANDLE t = CreateThread(NULL, 0, pool_thread, NULL, 0, NULL);
+        SetThreadPriority(t, THREAD_PRIORITY_ABOVE_NORMAL);
+        CloseHandle(t);
+    }
+    filter_set_parallel(pool_run);
+}
+
+static void osd_filter(void) {
+    if (filter_mode == FILTER_CRT) osd_show("FILTER: CRT", "OLD SCHOOL TELEVISION", OSD_YELLOW, 150);
+    else if (filter_mode == FILTER_XBRZ) osd_show("FILTER: XBRZ", "SMOOTH PIXEL ART", OSD_YELLOW, 150);
+    else osd_show("FILTER: OFF", "F7: CRT / XBRZ", OSD_WHITE, 150);
+}
+
 static void present(HDC dc) {
     RECT rc; GetClientRect(hwnd, &rc);
     int cw = rc.right, ch = rc.bottom;
@@ -303,7 +365,7 @@ static void present(HDC dc) {
     else {
         if ((long long)cw * SRC_H > (long long)ch * iw) { dh = ch; dw = ch * iw / SRC_H; } else { dw = cw; dh = cw * SRC_H / iw; }
         int ix = cw / iw, iy = ch / SRC_H, is = ix < iy ? ix : iy;
-        if (is >= 1 && is * iw >= dw - iw / 2) { dw = is * iw; dh = is * SRC_H; } /* prefer integer scale */
+        if (!filter_mode && is >= 1 && is * iw >= dw - iw / 2) { dw = is * iw; dh = is * SRC_H; } /* prefer integer scale */
     }
     int x0 = (cw - dw) / 2, y0 = (ch - dh) / 2;
     HBRUSH black = (HBRUSH)GetStockObject(BLACK_BRUSH);
@@ -313,6 +375,18 @@ static void present(HDC dc) {
     r = (RECT){0, y0, x0, y0 + dh}; FillRect(dc, &r, black);
     r = (RECT){x0 + dw, y0, cw, y0 + dh}; FillRect(dc, &r, black);
     SetStretchBltMode(dc, COLORONCOLOR);
+    if (filter_mode) {
+        int rw = dw, rh = dh;
+        if (filter_mode == FILTER_CRT && rh > 1600) { rw /= 2; rh /= 2; }   /* 4K: half size, doubled */
+        size_t need = (size_t)rw * rh;
+        if (need > filt_cap) { free(filt_buf); filt_buf = malloc(need * 4); filt_cap = filt_buf ? need : 0; }
+        if (filt_buf && filter_render(filter_mode, pixels, iw, SRC_H, filt_buf, rw, rh)) {
+            bmf = bmi;
+            bmf.bmiHeader.biWidth = rw; bmf.bmiHeader.biHeight = -rh;
+            StretchDIBits(dc, x0, y0, dw, dh, 0, 0, rw, rh, filt_buf, &bmf, DIB_RGB_COLORS, SRCCOPY);
+            return;
+        }
+    }
     StretchDIBits(dc, x0, y0, dw, dh, 0, 0, iw, SRC_H, pixels, &bmi, DIB_RGB_COLORS, SRCCOPY);
 }
 
@@ -405,6 +479,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case VK_F3: set_boost(!opt_extra_lines); set_title(); osd_boost(); return 0;
         case VK_F4: set_wide_mode((wide_mode + 1) % 3); osd_wide(); return 0;
         case VK_F5: juke_step(-1, GetKeyState(VK_SHIFT) < 0); return 0;
+        case VK_F7: filter_mode = (filter_mode + 1) % FILTER_COUNT; osd_filter(); InvalidateRect(h, NULL, FALSE); return 0;
         case VK_F6: juke_step(1, GetKeyState(VK_SHIFT) < 0); return 0;
         case VK_OEM_3: case VK_SPACE: fast = 1; set_title(); return 0;
         }
@@ -494,7 +569,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
     wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(1));
     wc.lpszClassName = "NesNativeGame";
     RegisterClassA(&wc);
-    /* options from the launcher: --fullscreen --scale N --volume 0..100 --boost --wide 0|1|2 --jukebox --launcher --rom path */
+    /* options from the launcher: --fullscreen --scale N --volume 0..100 --boost --wide 0|1|2 --jukebox --filter 0|1|2 --launcher --rom path */
     const char *rom_arg = NULL;
     for (int i = 1; i < __argc; i++) {
         const char *a = __argv[i];
@@ -506,6 +581,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
         else if (!strcmp(a, "--wide") && i + 1 < __argc) wide_mode = atoi(__argv[++i]) % 3;
         else if (!strcmp(a, "--rom") && i + 1 < __argc) rom_arg = __argv[++i];
         else if (!strcmp(a, "--jukebox")) juke_on = 1;
+        else if (!strcmp(a, "--filter") && i + 1 < __argc) { filter_mode = atoi(__argv[++i]); if (filter_mode < 0 || filter_mode >= FILTER_COUNT) filter_mode = 0; }
     }
     if (!find_rom(rom_arg)) {
         char m[600];
@@ -522,8 +598,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
         char *sl = strrchr(ini, '\\'); if (sl) sl[1] = 0; else ini[0] = 0;
         strncat(ini, "launcher.ini", MAX_PATH - strlen(ini) - 1);
         if (GetPrivateProfileIntA("game", "jukebox", 0, ini)) juke_on = 1;
+        if (!filter_mode) { int f = GetPrivateProfileIntA("game", "filter", 0, ini); if (f > 0 && f < FILTER_COUNT) filter_mode = f; }
     }
     if (juke_on) juke_init();
+    pool_init();
     if (opt_volume < 0) opt_volume = 0;
     if (opt_volume > 100) opt_volume = 100;
     int scale = 3;
