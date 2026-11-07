@@ -66,12 +66,17 @@ static int mm2_tile(int tx, int ty, uint8_t *tile, uint8_t *palno) {
 static const uint8_t *fixb, *sprb;
 static uint8_t rom(int a) { return a >= 0xC000 ? fixb[a - 0xC000] : sprb[(a - 0x8000) & 0x3FFF]; }
 
-/* harmless objects worth showing before the game spawns them */
+/* harmless objects worth showing before the game spawns them. Found from the
+   type tables: drawn (no $20 in the $D805 flags), and no contact damage (flag bit 0
+   clear, or 0 in the damage table $ED5C); platforms store a width in $0150. */
 static const uint8_t mm2_harmless[256] = {
+    [0x12] = 1,                                  /* lifts on a track (Crash Man, Wily) */
     [0x13] = 1,                                  /* falling platforms (Bubble Man) */
-    /* not the Air Man clouds (0x3E): a Lightning Lord rides each one */
+    [0x2D] = 1, [0x57] = 1,                      /* Crash Bomber walls (Wily) */
+    [0x63] = 1,                                  /* floating blocks (Wily 1 dragon) */
     [0x76] = 1, [0x77] = 1, [0x78] = 1, [0x79] = 1,   /* weapon / life energy */
     [0x7A] = 1, [0x7B] = 1,                      /* E-tank, 1-up */
+    /* not the Air Man clouds (0x3E): a Lightning Lord rides each one */
 };
 
 static int mm2_meta(WideSprite *o, int n, int max, int type, int frame, int sx, int sy, int flags, int palov) {
