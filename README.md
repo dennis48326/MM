@@ -137,17 +137,18 @@ How extended mode works:
   | Mega Man 5 | as Mega Man 4, layouts in a second graphics bank | section table + joined sections |
   | Mega Man 6 | one 256-byte page per block row, all screens side by side | scroll-lock flags set by trigger objects (`$71`) |
 * **Objects:** the game still spawns everything exactly when the original
-  does, so gameplay and difficulty are unchanged. In Mega Man 2, objects are
-  also drawn in the extra columns, from the game's own sprite data:
+  does, so gameplay and difficulty are unchanged. In all six games the extra
+  columns also show objects, drawn from the game's own sprite data:
   * Objects the game has already spawned are drawn in full, including the parts
     the original hides once they pass the 256-pixel edge.
-  * Harmless objects that have not been spawned yet are shown in advance, at
-    their place in the stage's object list: Bubble Man's falling platforms and
-    the items lying in the stages (energy, E-tanks, 1-ups). Enemies are never
-    shown before the game spawns them. Neither are the Air Man stage clouds,
-    because each one carries a Lightning Lord.
-
-  The other five games show background only for now.
+  * Objects that are not enemies are shown before the game spawns them, at their
+    place in the stage's object list, following the game's own rules (a
+    collected 1-up does not come back unless the game would bring it back):
+    items (energy, tanks, 1-ups, adapters, Beat letters), platforms and lifts,
+    breakable walls and blocks, fans, teleporters, Eddie and the like. Enemies,
+    hazards and bosses are never shown before the game spawns them. Neither
+    are Mega Man 2's Air Man clouds (each carries a Lightning Lord), platforms
+    that explode or flip into spikes, and timed appearing blocks.
 * **Room edges:** past a room's locked scroll edge (stage starts, shafts, boss
   rooms) the extra area is dark.
 * **Self-check:** while each frame is drawn, the tiles the game really shows

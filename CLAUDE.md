@@ -51,8 +51,8 @@ Identified by MD5 (whole file or without the 16-byte header); table in README.md
   `wide level=.. active=..`. Build with `-DWIDE_DEBUG=frame` to print mismatches, `-DWIDE_FORCE` to skip the check.
   Interp vs recompiled hashes must also match with `--wide`.
 - Objects in the extension: optional provider callback `objects()` returns sprites (x relative to the
-  256-px picture) drawn only outside 0..255 (`wide_sprites_line`); MM2 only so far (`wide_mm2.c`: spawned
-  slots in full + unspawned whitelisted types from the stage's object lists). Test host: `--noobj`,
+  256-px picture) drawn only outside 0..255 (`wide_sprites_line`); every game (`wide_mmN.c`: spawned slots in full +
+  unspawned non-enemy types from the stage's object lists, mirroring the game's spawn/gone bookkeeping). Test host: `--noobj`,
   `--ghostall` (show every unspawned object), `-P file` per-frame pokes ("frame addr val", e.g. to walk Mega
   Man through a stage by poking his x), `--vdump file frame` (CHR 8 KB + palette + RAM, for galleries).
 - Go-right test bot used for the providers: hold Right, jump and shoot; poke Mega Man's HP each frame
